@@ -67,7 +67,8 @@ button { font: inherit; }
 .brand-lockup, .topbar-meta, .metric-topline, .battery-value-row, .metric-foot,
 .section-heading, .chart-legend, .live-indicator { display: flex; align-items: center; }
 
-.brand-lockup { gap: 14px; }
+.topbar-brand { display:flex; align-items:center; gap:24px; min-width:0; }
+.brand-lockup { gap: 14px; flex:0 0 auto; }
 .home-link { color:inherit; text-decoration:none; border-radius:10px; }
 .home-link:hover h1 { color:var(--green); }
 .home-link:focus-visible { outline:2px solid var(--sun); outline-offset:5px; }
@@ -79,6 +80,11 @@ button { font: inherit; }
 .brand-mark img { display:block; width:100%; height:100%; object-fit:contain; }
 .brand-kicker { margin:0; color:#65736a; font:500 10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.10em; }
 .brand-kicker strong { color:var(--text); font-weight:800; }
+.project-links { display:flex; align-items:center; gap:7px; }
+.project-links a { display:inline-flex; align-items:center; gap:5px; padding:6px 8px; border:1px solid var(--line); border-radius:999px; color:var(--muted); background:var(--panel); text-decoration:none; font:700 9px ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.04em; transition:.2s ease; }
+.project-links a:hover { border-color:color-mix(in srgb,var(--green) 45%,transparent); color:var(--green); transform:translateY(-1px); }
+.project-links a:focus-visible { outline:2px solid var(--sun); outline-offset:3px; }
+.project-links svg { width:14px; height:14px; fill:currentColor; }
 
 .eyebrow {
   margin: 0; color: #65736a; font: 700 10px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -562,6 +568,10 @@ html[data-theme="dark"] .status-pill.offline { background:rgba(237,120,108,.08);
   .dashboard-shell { width:min(100% - 24px, 640px); padding-top:14px; }
   .topbar { align-items:flex-start; gap:18px; }
   .topbar-meta { flex-direction:column; align-items:flex-end; gap:5px; }
+  .topbar-brand { gap:9px; }
+  .project-links { gap:4px; }
+  .project-links a { width:28px; height:28px; justify-content:center; padding:0; }
+  .project-links a span { display:none; }
   .hero-grid, .details-grid, .source-grid { grid-template-columns:1fr; }
   .device-status-grid { grid-template-columns:1fr; }
   .meter-strip { grid-template-columns:repeat(2,1fr); }
