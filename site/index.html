@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Lokales, read-only PV- und Batterie-Dashboard für Raspberry Pi 5.">
+  <title>PV Dashboard · Raspberry Pi Energy Monitoring</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="hero">
+    <nav><strong>PV Dashboard</strong><div><a href="#features">Funktionen</a><a href="#gallery">Screenshots</a><a href="#architecture">Technik</a><a href="https://github.com/mail896/pv-dashboard">GitHub</a></div></nav>
+    <div class="hero-grid"><div><p class="eyebrow">LOCAL · READ-ONLY · OPEN SOURCE</p><h1>Energieflüsse verstehen.<br>Messdaten behalten.</h1><p class="lead">Ein responsives Raspberry-Pi-Dashboard für PV-Erzeugung, Hausverbrauch, Netz, Batteriespeicher und langfristige Auswertung – vollständig lokal und ohne Geräte zu steuern.</p><div class="actions"><a class="primary" href="https://github.com/mail896/pv-dashboard">Quellcode ansehen</a><a href="#gallery">Galerie</a></div></div><img src="images/dashboard-overview.jpg" alt="PV Dashboard mit Energieverlauf"></div>
+  </header>
+  <main>
+    <section id="features"><p class="eyebrow">FUNKTIONEN</p><h2>Vom Fünf-Sekunden-Wert zur Langzeitanalyse</h2><div class="cards"><article><b>Live-Energiefluss</b><p>PV, Hauslast, Netz und Batterie in einer gemeinsamen AC-seitigen Bilanz.</p></article><article><b>Historie & Statistik</b><p>Interaktive Leistungskurven und kalenderbasierte Energieblöcke.</p></article><article><b>Speicheranalyse</b><p>SOC, Lade-/Entladeleistung, Temperaturen und nutzbare Energie.</p></article><article><b>Rohdatenexport</b><p>Geschützte CSV- und ZIP-Exporte für eigene maschinelle Auswertungen.</p></article></div></section>
+    <section id="gallery"><p class="eyebrow">GALERIE</p><h2>Desktop und mobil</h2><div class="gallery"><figure class="wide"><img src="images/history-battery.jpg" alt="Leistungs-, Energie- und Batteriediagramme"><figcaption>Leistung, Energiebilanz und Speicherzustand</figcaption></figure><figure><img src="images/highscores.jpg" alt="Tages- und Momentrekorde"><figcaption>Tages- und Momentrekorde</figcaption></figure><figure class="phone"><img src="images/mobile-flow.png" alt="Mobiler Energiefluss"><figcaption>Responsive Energieflussansicht</figcaption></figure></div></section>
+    <section id="architecture"><p class="eyebrow">ARCHITEKTUR</p><h2>Vier lokale Quellen, ein konsistentes Datenmodell</h2><div class="flow"><span>Solakon ONE<br><small>Modbus TCP</small></span><span>APsystems EZ1<br><small>Local HTTP</small></span><span>Shelly Pro 3EM<br><small>RPC/HTTP</small></span><span>Tasmota IR<br><small>HTTP</small></span><strong>FastAPI<br>SQLite/WAL<br>Chart.js</strong></div><p class="center">Python · FastAPI · Uvicorn · SQLite · Vanilla JavaScript · Chart.js · systemd</p></section>
+  </main>
+  <footer><span>PV Dashboard · MIT License</span><a href="https://github.com/mail896/pv-dashboard">mail896/pv-dashboard</a></footer>
+</body>
+</html>

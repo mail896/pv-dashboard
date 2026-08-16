@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f7f2">
+  <link rel="icon" href="/favicon.ico?v=2" sizes="any">
+  <link rel="icon" type="image/png" href="/favicon.png?v=2">
+  <title>Local PV Dashboard</title>
+  <meta name="description" content="Lokales Live-Dashboard für Solakon ONE, APsystems EZ1, Shelly Pro 3EM und Tasmota IR-Zähler.">
+  <script>try{document.documentElement.dataset.theme=localStorage.getItem("pv-theme")||"light"}catch(e){document.documentElement.dataset.theme="light"}</script>
+  <link rel="stylesheet" href="assets/dashboard.css?v=66">
+  <script defer src="assets/chart.umd.min.js?v=4.5.1"></script>
+  <script defer src="assets/dashboard.js?v=60"></script>
+</head>
+<body>
+  <main class="dashboard-shell" id="dashboard">
+    <header class="topbar">
+      <a class="brand-lockup home-link" href="/" aria-label="Zurück zur Startseite" title="Zur Startseite"><span class="brand-mark"><img src="assets/homer-home.png" alt=""></span><div><p class="brand-kicker">Local <strong>PV</strong></p><h1>Energy Dashboard</h1></div></a>
+      <div class="topbar-meta"><button class="theme-toggle" id="theme-toggle" type="button" aria-label="Farbschema wechseln"><span aria-hidden="true">◐</span><b id="theme-label">Dunkel</b></button><span class="live-indicator" id="live-status"><span></span><b>Live · 5 Sekunden</b></span><time id="updated-at">—</time></div>
+    </header>
+
+    <nav class="dashboard-tabs panel" aria-label="Dashboard-Bereiche">
+      <div role="tablist">
+        <button type="button" role="tab" data-dashboard-tab="overview" class="active" aria-selected="true">Übersicht</button>
+        <button type="button" role="tab" data-dashboard-tab="history" aria-selected="false">Verlauf</button>
+        <button type="button" role="tab" data-dashboard-tab="economics" aria-selected="false">Wirtschaft</button>
+        <button type="button" role="tab" data-dashboard-tab="system" aria-selected="false">System</button>
+        <button type="button" role="tab" data-dashboard-tab="info" aria-selected="false">Info</button>
+      </div>
+      <button class="all-sections-toggle" id="all-sections-toggle" type="button"><span class="all-sections-icon" aria-hidden="true"></span><span id="all-sections-label">Alles anzeigen</span></button>
+    </nav>
+
+    <section class="meter-strip panel" aria-label="Gesamtzählerstände">
+      <div><span>Netzbezug gesamt</span><strong id="meter-import-total">—</strong><small>Hauptzähler · IR</small></div>
+      <div><span>Einspeisung gesamt</span><strong id="meter-export-total">—</strong><small>Hauptzähler · IR</small></div>
+      <div><span>PV-Erzeugung heute</span><strong id="meter-pv-today">—</strong><small>ONE + EZ1 Ost</small></div>
+      <div><span>PV-Erzeugung gesamt</span><strong id="meter-pv-lifetime">—</strong><small>ONE + EZ1 Ost</small></div>
+    </section>
+
+    <section class="hero-grid">
+      <article class="hero-card panel solar-card">
+        <div class="metric-topline"><span class="metric-icon sun-icon"></span><span>PV gesamt</span></div>
+        <p class="hero-value" id="pv-total">—</p><p class="metric-caption">Gemeinsame Erzeugung aller sechs Module</p>
+        <div class="metric-split"><div><span>Solakon · Süd/West</span><strong id="pv-solakon">—</strong></div><div><span>EZ1 · Ost</span><strong id="pv-ez1">—</strong></div></div>
+        <div class="metric-money"><span>Erzeugungswert aktuell*</span><strong id="pv-value-hour">—</strong></div>
+      </article>
+      <article class="hero-card panel house-card">
+        <div class="metric-topline"><span class="metric-icon home-icon"></span><span>Hausverbrauch</span></div>
+        <p class="hero-value" id="house-power">—</p><p class="metric-caption">AC-Bilanz aus ONE, EZ1 und Shelly-Netzfluss</p>
+        <div class="mini-progress"><span id="autarky-bar"></span></div><div class="metric-foot"><span>Aktuelle Autarkie</span><strong id="autarky">—</strong></div>
+        <div class="metric-money"><span>Verbrauchswert aktuell</span><strong id="house-value-hour">—</strong></div>
+      </article>
+      <article class="hero-card panel grid-card" id="grid-card">
+        <div class="metric-topline"><span class="metric-icon grid-icon"></span><span id="grid-title">Netz</span></div>
+        <p class="hero-value" id="grid-power">—</p><p class="metric-caption">Shelly Pro 3EM · maßgeblicher Netzanschlusspunkt</p>
+        <div class="metric-foot"><span>Richtung</span><strong id="grid-direction">—</strong></div>
+        <div class="metric-money"><span id="grid-value-label">Bezugskosten aktuell</span><strong id="grid-value-hour">—</strong></div>
+      </article>
+      <article class="hero-card panel battery-card">
+        <div class="metric-topline"><span class="metric-icon battery-icon"></span><span>Batterie</span></div>
+        <div class="battery-value-row"><p class="hero-value" id="battery-soc">—</p><span id="battery-state">—</span></div>
+        <div class="battery-gauge"><span id="battery-bar"></span></div>
+        <div class="metric-foot ac-output"><span id="one-ac-label">ONE AC-Leistung · App-Wert</span><strong id="one-ac-output">—</strong></div>
+        <div class="battery-facts"><div><span>Batterie · DC</span><strong id="battery-power">—</strong></div><div><span>Temperatur</span><strong id="battery-temp">—</strong></div><div><span>Restenergie</span><strong id="battery-remaining">—</strong></div><div><span>Kapazität</span><strong id="battery-capacity">—</strong></div></div>
+        <div class="metric-money"><span>Vermiedener Bezug aktuell*</span><strong id="battery-value-hour">—</strong></div>
+      </article>
+    </section>
+
+    <section class="statistics-panel panel" data-dashboard-section="overview">
+      <div class="section-heading"><div><p class="eyebrow">Energiebilanz</p><h2>Tageswerte</h2></div><p class="section-note">Aus 5-Sekunden-Messwerten · Messlücken werden nicht hochgerechnet</p></div>
+      <div class="today-grid">
+        <div><span>Verbrauch heute</span><strong id="today-consumption">—</strong></div>
+        <div><span>PV heute</span><strong id="today-pv">—</strong></div>
+        <div><span>Netzbezug heute</span><strong id="today-import">—</strong></div>
+        <div><span>Einspeisung heute</span><strong id="today-export">—</strong></div>
+        <div><span>Autarkie heute</span><strong id="today-autarky">—</strong></div>
+        <div><span>Eigenverbrauch</span><strong id="today-self-use">—</strong></div>
+        <div><span>Grundlast typisch</span><strong id="today-base-load">—</strong></div>
+      </div>
+      <div class="daily-table"><div class="daily-row daily-head"><span>Tag</span><span>Verbrauch</span><span>PV</span><span>Bezug</span><span>Einspeisung</span><span>Autarkie</span><span>Grundlast</span></div><div id="daily-statistics"></div></div>
+    </section>
+
+    <section class="flow-panel panel" data-dashboard-section="overview">
+      <div class="section-heading"><div><p class="eyebrow">Momentaufnahme</p><h2>Energiefluss</h2></div><p class="section-note">DC-Ladung näherungsweise · AC-Flüsse aus Geräte- und Shelly-Werten</p></div>
+      <div class="flow-stage flow-stage-detailed">
+        <div class="flow-node one-pv-node"><span class="node-kicker">ONE-PV · Süd/West</span><strong id="flow-one-pv">—</strong><small>DC-Erzeugung</small></div>
+        <div class="flow-node flow-battery-node"><span class="node-kicker" id="flow-battery-title">Batterie</span><strong id="flow-battery">—</strong><small id="flow-battery-detail">—</small></div>
+        <div class="flow-node ez1-flow-node"><span class="node-kicker">EZ1 · Ost</span><strong id="flow-ez1">—</strong><small>AC-Erzeugung</small></div>
+        <div class="flow-node flow-home-node"><span class="home-ring"><span class="home-roof"></span></span><span class="node-kicker">Haus</span><strong id="flow-house">—</strong><small id="flow-autarky">—</small></div>
+        <div class="flow-node flow-grid-node"><span class="node-kicker">Öffentliches Netz</span><strong id="flow-grid">—</strong><small id="flow-grid-detail">—</small><small class="flow-grid-average" id="flow-grid-average">Ø 1 min: —</small></div>
+        <div class="flow-line dc-charge-flow idle" id="dc-charge-flow"><span class="flow-value" id="dc-charge-flow-value">—</span><span class="flow-track"><span class="flow-dot dot-one"></span><span class="flow-dot dot-two"></span></span></div>
+        <div class="flow-line one-ac-flow idle" id="one-ac-flow"><span class="flow-value" id="one-ac-flow-value">—</span><span class="flow-track"><span class="flow-dot dot-one"></span><span class="flow-dot dot-two"></span></span></div>
+        <div class="flow-line ez1-ac-flow idle" id="ez1-ac-flow"><span class="flow-track"><span class="flow-dot dot-one"></span><span class="flow-dot dot-two"></span></span></div>
+        <div class="flow-line house-grid-flow idle" id="house-grid-flow"><span class="flow-track"><span class="flow-dot dot-one"></span><span class="flow-dot dot-two"></span></span></div>
+      </div>
+    </section>
+
+    <section class="details-grid" data-dashboard-section="overview">
+      <section class="detail-card panel solakon-card"><div class="section-heading compact"><div><p class="eyebrow">Süd / West</p><h3>Solakon ONE</h3></div></div><div class="channel-grid" id="solakon-channels"></div></section>
+      <section class="detail-card panel ez1-card"><div class="section-heading compact"><div><p class="eyebrow">Ost</p><h3>APsystems EZ1</h3></div></div><div class="channel-grid" id="ez1-channels"></div></section>
+      <section class="detail-card panel phase-card"><div class="section-heading compact"><div><p class="eyebrow">Netzanschlusspunkt</p><h3>Shelly Phasen</h3></div></div><div class="phase-list" id="shelly-phases"></div></section>
+      <section class="detail-card panel diagnostic-card"><div class="section-heading compact"><div><p class="eyebrow">Plausibilität</p><h3>Zählervergleich</h3></div></div><div class="comparison-list" id="grid-comparison"></div><p class="diagnostic-note">Shelly ist die Netzreferenz · Abweichungen bleiben sichtbar.</p></section>
+    </section>
+
+    <section class="history-panel panel" data-dashboard-section="history">
+      <div class="section-heading history-heading"><div><p class="eyebrow">Historie</p><h2>Leistungen im Verlauf</h2></div><div class="range-tabs" role="tablist" aria-label="Zeitraum wählen"><button data-range="1h">1 Stunde</button><button data-range="24h" class="active">Tag</button><button data-range="7d">7 Tage</button><button data-range="30d">Monat</button></div></div>
+      <div class="chart-legend interactive-legend" aria-label="Messreihen ein- oder ausblenden"><button type="button" data-history-series="pv_total_w"><i class="legend-pv"></i>PV gesamt</button><button type="button" data-history-series="house_w"><i class="legend-house"></i>Haus</button><button type="button" data-history-series="grid_w"><i class="legend-grid"></i>Netz</button><button type="button" data-history-series="battery_w"><i class="legend-battery"></i>Batterie</button><button type="button" id="history-series-all">Alle</button></div>
+      <div class="chart-frame chart-frame-power"><canvas class="history-canvas" id="history-chart" aria-label="Leistungsverlauf"></canvas></div>
+      <p class="analysis-note">Legende anklicken zum Ein-/Ausblenden · Maus oder Finger zeigt alle Werte eines Zeitpunkts · Klick in die Grafik hält den Tooltip fest.</p>
+    </section>
+
+    <section class="energy-statistics panel" data-dashboard-section="history">
+      <div class="section-heading history-heading"><div><p class="eyebrow">Energiebilanz</p><h2>Erzeugung, Verbrauch und Verschiebung</h2></div><div class="range-tabs" role="tablist" aria-label="Energiezeitraum wählen"><button data-energy-period="day" class="active">Tag</button><button data-energy-period="week">Woche</button><button data-energy-period="month">Monat</button><button data-energy-period="year">Jahr</button><button data-energy-period="years">Jahre</button></div></div>
+      <div class="statistics-toolbar"><div class="range-tabs"><button data-energy-view="balance" class="active">Bilanz</button><button data-energy-view="grid">Netz</button><button data-energy-view="battery">Batterie</button></div><div class="period-navigation"><button id="energy-previous" type="button" aria-label="Vorheriger Zeitraum">‹</button><strong id="energy-period-label">—</strong><button id="energy-next" type="button" aria-label="Nächster Zeitraum">›</button><a id="energy-csv" href="api/energy-series.csv?period=day">CSV</a></div></div>
+      <div class="chart-frame chart-frame-energy"><canvas class="energy-canvas" id="energy-chart" aria-label="Energie je Kalenderabschnitt"></canvas></div>
+      <p class="analysis-note" id="energy-coverage-note">Serverseitig aus 5‑Sekunden-Werten integriert · Messlücken über 30 Sekunden werden nicht hochgerechnet.</p>
+    </section>
+
+    <section class="soc-history panel" data-dashboard-section="history">
+      <div class="section-heading"><div><p class="eyebrow">Speicherzustand</p><h2>Ladezustand und Batterieleistung</h2></div><p class="section-note">Ladezustand links · Laden/Abgabe rechts · gemeinsamer Zeitpunkt-Tooltip</p></div>
+      <div class="chart-frame chart-frame-soc"><canvas class="soc-canvas" id="soc-chart" aria-label="Ladezustand und Batterieleistung"></canvas></div>
+    </section>
+
+    <section class="battery-analysis panel" data-dashboard-section="history">
+      <div class="section-heading"><div><p class="eyebrow">Speichernutzung</p><h2>Verlauf Batterienutzung</h2></div><p class="section-note">Voll ab 99 % · Reserve erreicht bei 10 % · Basis für eine spätere Kapazitätsentscheidung</p></div>
+      <div class="battery-summary">
+        <div><span>Beobachtete Tage</span><strong id="battery-observed-days">—</strong></div>
+        <div><span>Voll erreicht</span><strong id="battery-full-days">—</strong></div>
+        <div><span>Reserve erreicht</span><strong id="battery-empty-days">—</strong></div>
+        <div><span>Einspeisung bei voll</span><strong id="battery-full-export">—</strong></div>
+        <div><span>Bezug bei Reserve</span><strong id="battery-empty-import">—</strong></div>
+        <div><span>Verschiebepotenzial*</span><strong id="battery-shift-potential">—</strong></div>
+      </div>
+      <div class="battery-table"><div class="battery-row battery-head"><span>Tag</span><span>Voll ab</span><span>Reserve ab</span><span>Zeit voll</span><span>Zeit Reserve</span><span>Geladen</span><span>Entladen</span></div><div id="battery-statistics"></div></div>
+      <p class="analysis-note">* Konservativer Tagesindikator: kleinere Energiemenge aus Einspeisung bei voller Batterie und Netzbezug bei erreichter Reserve. Erst eine längere Datenreihe über verschiedene Jahreszeiten erlaubt eine belastbare Empfehlung für weitere 2,1 kWh.</p>
+    </section>
+
+    <section class="temperature-panel panel" id="temperature-panel" data-dashboard-section="history">
+      <div class="section-heading history-heading"><div><p class="eyebrow">Thermisches Monitoring</p><h2>Batterie- und ONE-Temperatur</h2></div><div class="range-tabs" role="tablist" aria-label="Temperaturzeitraum wählen"><button data-temp-range="24h" class="active">Tag</button><button data-temp-range="7d">7 Tage</button><button data-temp-range="30d">30 Tage</button></div></div>
+      <div class="temperature-summary">
+        <div><span>Batterie aktuell</span><strong id="temperature-battery-now">—</strong><small id="temperature-status">Status wird ermittelt</small></div>
+        <div><span>ONE intern aktuell</span><strong id="temperature-one-now">—</strong><small>Geräteinnentemperatur</small></div>
+        <div><span>Batterie-Maximum im Zeitraum</span><strong id="temperature-battery-max">—</strong><small id="temperature-battery-max-time">—</small></div>
+        <div><span>ONE-Maximum im Zeitraum</span><strong id="temperature-one-max">—</strong><small id="temperature-one-max-time">—</small></div>
+      </div>
+      <div class="chart-legend"><span><i class="legend-temperature-battery"></i>Batterie</span><span><i class="legend-temperature-one"></i>ONE intern</span><span class="temperature-threshold-note">Orientierung: 45 °C erhöht · 50 °C Warnung</span></div>
+      <canvas class="temperature-canvas" id="temperature-chart" aria-label="Temperaturverlauf von Batterie und Solakon ONE"></canvas>
+      <p class="analysis-note">Lokale Beobachtung: „erhöht“ nach anhaltend mindestens 45 °C, Warnung ab 50 °C oder bei schnellem Anstieg. Entwarnung erst wieder unter 42 °C. Die Schwellen sind vorläufige Beobachtungswerte und werden vor einem E-Mail-Alarm mit Herstellerangaben und längerer Messreihe abgeglichen.</p>
+    </section>
+
+    <section class="highscore-panel panel" data-dashboard-section="history">
+      <div class="section-heading"><div><p class="eyebrow">All Time Highscore</p><h2>Rekorde seit Aufzeichnungsbeginn</h2></div><p class="section-note" id="highscore-since">Tagesenergie und Momentanleistung werden bewusst getrennt</p></div>
+      <div class="highscore-columns"><div><h3>Tagesrekorde</h3><p class="analysis-note" id="highscore-completeness">Nur vollständige Tage</p><div class="highscore-column-head" aria-hidden="true"><span></span><strong>MAX</strong><strong>MIN</strong></div><div id="daily-highscores" class="highscore-list"></div></div><div class="instant-highscore-column"><h3>Momentanrekorde</h3><p class="analysis-note highscore-placeholder" aria-hidden="true">Nur vollständige Tage</p><div class="highscore-column-head highscore-placeholder" aria-hidden="true"><span></span><strong>MAX</strong><strong>MIN</strong></div><div id="instant-highscores" class="highscore-list"></div></div></div>
+    </section>
+
+    <section class="solar-profile-panel panel" data-dashboard-section="history">
+      <div class="section-heading"><div><p class="eyebrow">Wochenverlauf</p><h2>Sonnenverlauf der PV-Flächen</h2></div><p class="section-note">10‑Minuten-Mittelwerte · Farbe = Leistung · Aktiv ab 10 W</p></div>
+      <div class="profile-heatmaps">
+        <div><h3>Ost · APsystems EZ1</h3><canvas id="profile-east" aria-label="Wochenprofil der Ost-PV"></canvas></div>
+        <div><h3>Süd / West · Solakon ONE</h3><canvas id="profile-solakon" aria-label="Wochenprofil der Süd-West-PV"></canvas></div>
+      </div>
+      <div class="profile-table"><div class="profile-row profile-head"><span>Tag</span><span>Ost Start</span><span>Ost Peak</span><span>Ost Ende</span><span>Wechsel</span><span>S/W Start</span><span>S/W Peak</span><span>S/W Ende</span></div><div id="solar-profile-days"></div></div>
+      <p class="analysis-note">„Wechsel“ markiert den ersten stabilen 10‑Minuten-Abschnitt, in dem Süd/West die zuvor stärkere Ostseite um mindestens 20 W überholt. Wolken können den Zeitpunkt verschieben; der saisonale Trend wird mit längerer Historie deutlich.</p>
+    </section>
+
+    <section class="economics-panel panel" data-dashboard-section="economics">
+      <div class="section-heading"><div><p class="eyebrow">Stromkosten &amp; Wert</p><h2>Simulierte Kosten/Ersparnis</h2></div><p class="section-note">Plesse-Strom ab 01.01.2026 · Grundpreis bleibt unabhängig von PV bestehen</p></div>
+      <div class="tariff-controls">
+        <div class="tariff-control">
+          <div><span>Bezugspreis</span><strong id="tariff-price">28,33 ct/kWh</strong><small>Basis brutto · Grundpreis 142,80 €/Jahr</small></div>
+          <input id="tariff-slider" type="range" min="15" max="50" step="0.01" value="28.33" aria-label="Bezugspreis in Cent je Kilowattstunde">
+          <button id="tariff-reset" type="button">Basispreis</button>
+        </div>
+        <div class="tariff-control export-tariff-control">
+          <div><span>Hypothetische Einspeisevergütung</span><strong id="export-tariff-price">6,00 ct/kWh</strong><small>Tatsächliche Vergütung weiterhin 0,00 ct/kWh</small></div>
+          <input id="export-tariff-slider" type="range" min="0" max="15" step="0.01" value="6" aria-label="Hypothetische Einspeisevergütung in Cent je Kilowattstunde">
+          <button id="export-tariff-reset" type="button">6 ct</button>
+        </div>
+      </div>
+      <div class="economics-groups">
+        <div class="economics-group"><h3>Heute · exakt aus Messwerten</h3><div class="economics-grid">
+          <div><span>Netzbezug</span><strong id="cost-today-import">—</strong><small id="energy-today-import">—</small></div>
+          <div><span>Vermiedener Netzbezug</span><strong id="saving-today">—</strong><small id="energy-today-avoided">—</small></div>
+          <div><span>Einspeisung · hypothetische Vergütung</span><strong id="export-value-today">—</strong><small id="energy-today-export">—</small></div>
+        </div></div>
+        <div class="economics-group"><h3>Seit Aufzeichnungsbeginn · exakt</h3><div class="economics-grid">
+          <div><span>Netzbezugskosten</span><strong id="cost-recording-import">—</strong><small id="energy-recording-import">—</small></div>
+          <div><span>Vermiedener Netzbezug</span><strong id="saving-recording">—</strong><small id="energy-recording-avoided">—</small></div>
+          <div><span>Einspeisung · hypothetische Vergütung</span><strong id="export-value-recording">—</strong><small id="energy-recording-export">—</small></div>
+        </div></div>
+        <div class="economics-group"><h3>Hauptzähler · Langzeitanker</h3><div class="economics-grid">
+          <div><span>Bezug zum simulierten Preis</span><strong id="cost-meter-import">—</strong><small id="energy-meter-import">—</small></div>
+          <div><span>Einspeisung · tatsächlicher Erlös</span><strong>0,00 €</strong><small id="energy-meter-export">—</small></div>
+          <div><span>Einspeisung · hypothetische Vergütung</span><strong id="export-value-meter">—</strong><small>zum separat simulierten Einspeisesatz</small></div>
+        </div></div>
+      </div>
+      <div class="amortization-block">
+        <div class="amortization-heading"><div><p class="eyebrow">Gesamtsystem · konservativ</p><h3>Amortisation</h3></div><span>Investition ca. <strong>3.551 €</strong></span></div>
+        <div class="amortization-grid">
+          <div><span>Eigennutzung seit Anlagenstart*</span><strong id="amortization-historic-energy">—</strong><small>3.000 kWh EZ1/EZ2 + ONE gesamt − aktuelle Zählereinspeisung</small></div>
+          <div><span>Simulierter Nutzen bisher</span><strong id="amortization-benefit">—</strong><small>ohne Einspeisevergütung</small></div>
+          <div><span>Amortisationsgrad</span><strong id="amortization-percent">—</strong><small id="amortization-remaining">—</small></div>
+          <div><span>Aktuelle Jahreshochrechnung</span><strong id="amortization-annual">—</strong><small id="amortization-payback">kurze Messhistorie</small></div>
+        </div>
+        <div class="amortization-progress"><span id="amortization-bar"></span></div>
+      </div>
+      <p class="analysis-note">* Momentwerte sind €/h-Hochrechnungen. Die simulierte Einspeisevergütung ist rein hypothetisch; tatsächlich werden 0,00 ct/kWh vergütet. Langzeit-Zählerwerte sind keine historische Stromabrechnung.</p>
+      <p class="analysis-note">* Amortisationsannahmen: 3.000 kWh kumulierte Erzeugung aus EZ1/EZ2 bis heute, dazu der live gelesene ONE-Gesamtzähler; davon wird die gesamte aktuelle Hauptzähler-Einspeisung abgezogen. Die detaillierten Aufzeichnungswerte werden nicht zusätzlich addiert. Gesamtinvestition ca. 3.551 €. Historische und künftige Ersparnis werden mit dem gewählten Bezugspreis simuliert. Jahreswert und Break-even-Datum sind derzeit eine optimistische Momenthochrechnung aus wenigen, sommerlichen Messtagen – viel Idealismus inklusive.</p>
+    </section>
+
+    <section class="device-status-panel panel" data-dashboard-section="system">
+      <div class="section-heading"><div><p class="eyebrow">Geräteschutz · read-only</p><h2>Betriebszustand &amp; Ereignisse</h2></div><p class="section-note">Lokale Statuswechsel ab Aktivierung dieser Aufzeichnung</p></div>
+      <div class="device-status-grid">
+        <article id="one-device-state"><div><span>Solakon ONE</span><strong id="one-operating-state">—</strong></div><span class="device-state-badge" id="one-state-badge">—</span><p id="one-alarm-summary">Status wird gelesen</p><small id="one-state-detail">—</small></article>
+        <article id="ez1-device-state"><div><span>APsystems EZ1 · Ost</span><strong id="ez1-operating-state">—</strong></div><span class="device-state-badge" id="ez1-state-badge">—</span><p id="ez1-alarm-summary">Status wird gelesen</p><small id="ez1-state-detail">—</small></article>
+        <article id="shelly-device-state"><div><span>Shelly Pro 3EM</span><strong id="shelly-operating-state">—</strong></div><span class="device-state-badge" id="shelly-state-badge">—</span><p id="shelly-alarm-summary">Status wird gelesen</p><small id="shelly-state-detail">—</small></article>
+        <article id="tasmota-device-state"><div><span>IR-Leser · Tasmota</span><strong id="tasmota-operating-state">—</strong></div><span class="device-state-badge" id="tasmota-state-badge">—</span><p id="tasmota-alarm-summary">Status wird gelesen</p><small id="tasmota-state-detail">—</small></article>
+      </div>
+      <div class="device-events"><div class="device-event-row device-event-head"><span>Zeitpunkt</span><span>Gerät</span><span>Ereignis</span><span>Messkontext</span></div><div id="device-event-list"><p class="empty-row">Ereignishistorie wird geladen</p></div></div>
+      <p class="analysis-note">Alarmregister zeigen den jeweils beobachteten Gerätezustand, kein rückwirkendes Hersteller-Ereignisprotokoll. „Normal“ wird ebenfalls als Zustandswechsel gespeichert. Das Dashboard sendet keinerlei Steuerbefehle.</p>
+    </section>
+
+    <section class="source-strip panel" data-dashboard-section="system">
+      <div class="section-heading compact"><div><p class="eyebrow">Datenquellen</p><h2>Lokale Verbindungen</h2></div></div>
+      <div class="source-grid">
+        <div><strong>Solakon ONE</strong><small>Modbus TCP · 502</small><span class="status-pill" id="status-solakon"><span class="status-dot"></span><b>—</b></span></div>
+        <div><strong>Shelly Pro 3EM</strong><small>RPC · Netzreferenz</small><span class="status-pill" id="status-shelly"><span class="status-dot"></span><b>—</b></span></div>
+        <div><strong>IR-Zähler</strong><small>Tasmota · Plausibilität</small><span class="status-pill" id="status-tasmota"><span class="status-dot"></span><b>—</b></span></div>
+        <div><strong>APsystems EZ1</strong><small>Lokale API · 8050</small><span class="status-pill" id="status-ez1"><span class="status-dot"></span><b>—</b></span></div>
+      </div>
+      <div class="storage-status" aria-label="Datenspeicher">
+        <span class="storage-title">Datenspeicher</span>
+        <span><strong id="storage-count">—</strong><small>Messpunkte</small></span>
+        <span><strong id="storage-size">—</strong><small>SQLite inkl. WAL</small></span>
+        <span><strong id="storage-since">—</strong><small>Aufzeichnung seit</small></span>
+        <span><strong id="storage-free">—</strong><small>Speicher frei</small></span>
+        <span class="storage-policy">5-Sekunden-Takt · keine automatische Löschung</span>
+      </div>
+    </section>
+
+    <section class="info-panel panel" data-dashboard-section="info">
+      <div class="section-heading info-heading"><div><p class="eyebrow">Hilfe · Dokumentation · Projektsteckbrief</p><h2>Was das lokale PV-Dashboard macht</h2></div><p class="section-note">Lokale Energiebeobachtung · ausschließlich lesend</p></div>
+
+      <div class="info-lead">
+        <p>Dieses Dashboard führt die Messwerte der Photovoltaikanlage, des Hauses, des Netzanschlusses und des Batteriespeichers in einer gemeinsamen, lokal betriebenen Oberfläche zusammen. Es macht aktuelle Energieflüsse sichtbar, bewahrt die Messhistorie und berechnet daraus Tageswerte, Vergleiche und vorsichtige wirtschaftliche Simulationen.</p>
+      </div>
+
+      <div class="info-facts" aria-label="Projekt auf einen Blick">
+        <div><strong>5 s</strong><span>Messintervall</span></div><div><strong>4</strong><span>lokale Datenquellen</span></div><div><strong>24/7</strong><span>lokaler Dienst</span></div><div><strong>0</strong><span>Steuerbefehle</span></div>
+      </div>
+
+      <div class="info-section-heading"><p class="eyebrow">Energie &amp; Funktionen</p><h3>Vom Momentwert bis zur Langzeitauswertung</h3></div>
+      <div class="info-grid">
+        <article class="info-card info-pv"><h4>Live-Energiefluss</h4><p>Zeigt PV-Erzeugung, Hausverbrauch, Netzfluss und Batteriespeicher gemeinsam. Die Hauslast wird AC-seitig als <code>Solakon ONE AC + EZ1 AC + Netzfluss</code> bilanziert. Batterie-DC und PV-DC werden nicht nochmals addiert, weil sie bereits in der AC-Abgabe des ONE enthalten sind.</p></article>
+        <article class="info-card info-house"><h4>Übersicht &amp; Tageswerte</h4><p>Aktuelle Leistung, Erzeugung, Verbrauch, Netzbezug, Einspeisung, Batterieladung und -entladung werden kompakt zusammengeführt. Autarkie beschreibt den ohne Netzbezug gedeckten Verbrauch; Eigenverbrauch den selbst genutzten Anteil der PV-Erzeugung.</p></article>
+        <article class="info-card info-grid-card"><h4>Verlauf &amp; Energiebilanz</h4><p>Interaktive Leistungskurven zeigen Wattwerte über die Zeit. Kalenderbasierte Balken fassen Energie in kWh nach Tag, Woche, Monat oder Jahr zusammen. Messlücken über 30 Sekunden werden bewusst nicht hochgerechnet; der mit Kennwort und TOTP geschützte CSV-Export und gemeinsame Zeittooltips erleichtern eigene Auswertungen.</p></article>
+        <article class="info-card info-battery"><h4>Batterie &amp; Temperaturen</h4><p>Ladezustand, Lade-/Entladeleistung, Tageszyklen, nutzbare Energie und Temperaturen werden getrennt ausgewertet. Die Temperaturhinweise sind lokale Beobachtungsschwellen, keine Herstellerfreigaben und noch kein automatischer Gerätealarm.</p></article>
+        <article class="info-card"><h4>Rekorde &amp; Sonnenprofil</h4><p>Tagesrekorde verwenden nur Tage mit mindestens 95&nbsp;% Messabdeckung. Momentrekorde stammen direkt aus den aufgezeichneten Leistungswerten. Das Sonnenprofil verdichtet 10-Minuten-Mittelwerte, um Tageszeit, Ausrichtung und Leistungsunterschiede der PV-Flächen sichtbar zu machen.</p></article>
+        <article class="info-card"><h4>Wirtschaftlichkeit</h4><p>Tarife, vermiedener Netzbezug, hypothetischer Einspeisewert und Amortisation sind Was-wäre-wenn-Rechnungen. Sie beruhen teilweise auf wenigen sommerlichen Messtagen und bekannten historischen Summen; sie sind Orientierung, keine Stromrechnung oder Ertragsgarantie.</p></article>
+      </div>
+
+      <div class="info-callout"><strong>Vorzeichen richtig lesen</strong><span>Netz positiv = Bezug, Netz negativ = Einspeisung. Batterie positiv = Entladung, Batterie negativ = Ladung. In getrennt benannten Energie- und Rekordkacheln werden die jeweiligen Mengen zur besseren Lesbarkeit als positive Beträge gezeigt.</span></div>
+
+      <div class="info-section-heading"><p class="eyebrow">Technik</p><h3>So arbeitet das System im Hintergrund</h3></div>
+      <div class="info-grid info-technical-grid">
+        <article class="info-card"><h4>Rechner &amp; Betriebssystem</h4><ul><li>Raspberry Pi 5 Model B, 8 GB RAM, ARM64</li><li>Debian GNU/Linux 12 „Bookworm“ ohne Desktop-Oberfläche</li><li>PCIe-NVMe mit rund 1 TB physischer Kapazität</li><li>systemd startet und überwacht den Dashboard-Dienst</li></ul></article>
+        <article class="info-card"><h4>Lokale Energiequellen</h4><ul><li>Solakon ONE Süd/West über Modbus TCP</li><li>APsystems EZ1 Ost über lokale HTTP-API</li><li>Shelly Pro 3EM als Netzreferenz über lokale RPC/HTTP-Abfrage</li><li>Tasmota-IR-Leser für Zählerstände und Plausibilisierung</li></ul></article>
+        <article class="info-card"><h4>Software-Architektur</h4><ul><li>Python-Backend mit FastAPI und Uvicorn</li><li>Vanilla JavaScript, HTML und CSS im Browser</li><li>Chart.js 4.5.1 lokal eingebunden – kein CDN erforderlich</li><li>Nginx übernimmt HTTPS und leitet <code>/pv/</code> intern an <code>127.0.0.1:8000</code> weiter</li></ul></article>
+        <article class="info-card"><h4>Datenhaltung</h4><ul><li>SQLite-Datenbank mit parallelem Schreibprotokoll (WAL): Neue Messungen und gleichzeitige Diagrammabfragen blockieren sich dadurch kaum</li><li>Rohmessungen normalerweise alle fünf Sekunden</li><li>Keine automatische Löschung der Messhistorie</li><li>Kalendergrenzen und Zeitangaben verwenden Europe/Berlin</li></ul></article>
+        <article class="info-card"><h4>Schonende Abfrage</h4><p>Der EZ1-Leistungswert wird höchstens alle zehn Sekunden abgefragt, Status und Alarme nur alle fünf Minuten. Kurze Aussetzer dürfen bis zu 45 Sekunden den letzten gültigen Wert verwenden. So wird die kleine Geräte-API geschont und die Anzeige flackert nicht bei jedem kurzen Netzwerkfehler.</p></article>
+        <article class="info-card"><h4>Sicherheit &amp; Grenzen</h4><p>Der Anwendungsdienst läuft mit eigenem, eingeschränktem Benutzer, ohne Schreibzugriff auf das System und nur auf der lokalen Loopback-Adresse. Gerätezugriffe sind read-only. CSV-Downloads verlangen Kennwort und TOTP; die Freigabe wird in einem sicheren Browser-Cookie für 15 Minuten gehalten. Fehler werden verständlich angezeigt; Netzwerk-, DNS-, Firewall- und Gerätekonfiguration gehören ausdrücklich nicht zum Dashboard.</p></article>
+      </div>
+
+      <div class="info-section-heading"><p class="eyebrow">Quelltext</p><h3>Projektumfang und Wartbarkeit</h3></div>
+      <div class="code-facts">
+        <div><strong>≈ 1.800</strong><span>Zeilen Python<br>Backend und Tests</span></div>
+        <div><strong>≈ 1.350</strong><span>Zeilen JavaScript<br>Interaktion und Diagramme</span></div>
+        <div><strong>≈ 700</strong><span>Zeilen CSS<br>Layout, Farben, responsive Ansicht</span></div>
+        <div><strong>≈ 300</strong><span>Zeilen HTML<br>Struktur und Dokumentation</span></div>
+        <div><strong>≈ 4.200</strong><span>eigene Codezeilen gesamt<br>zuzüglich Chart.js</span></div>
+      </div>
+      <p class="analysis-note">Die Zeilenzahlen sind bewusst gerundet und ändern sich mit jeder Weiterentwicklung. Minifizierte Fremdbibliotheken, Binärdateien, Cache-Dateien und Betriebsdokumentation sind nicht als eigener Quelltext mitgezählt. Der aktuelle automatische Prüfsatz umfasst neun Backend- und Datenlogiktests.</p>
+
+      <div class="info-section-heading"><p class="eyebrow">Datenexport</p><h3>Messhistorie maschinell auswerten</h3></div>
+      <form class="raw-export" id="raw-export-form">
+        <label>Von<input id="raw-export-start" name="start" type="date" required></label>
+        <label>Bis<input id="raw-export-end" name="end" type="date" required></label>
+        <label>Auflösung<select id="raw-export-resolution" name="resolution"><option value="5s">5 Sekunden · max. 7 Tage</option><option value="1m">1 Minute · max. 31 Tage</option><option value="15m">15 Minuten · max. 366 Tage</option></select></label>
+        <button type="submit">Rohdaten als ZIP</button>
+      </form>
+      <p class="analysis-note">Die ZIP-Datei enthält eine UTF‑8-CSV. Bei 5 Sekunden werden die gespeicherten Messfelder einschließlich vollständigem JSON-Snapshot exportiert; 1- und 15-Minuten-Dateien enthalten Mittelwerte und Stichprobenzahl. Der Download verlangt dieselbe Kennwort-/TOTP-Freigabe wie die Energiebilanz-CSV.</p>
+
+      <div class="info-section-heading"><p class="eyebrow">Einordnung</p><h3>Was die Zahlen nicht versprechen</h3></div>
+      <div class="info-notes"><p><strong>Messqualität:</strong> Reboots, Geräteausfälle oder Netzwerkunterbrechungen erzeugen echte Lücken. Das Dashboard kennzeichnet die Messabdeckung und erfindet für längere Lücken keine Energie.</p><p><strong>Abrechnung:</strong> Der Shelly liefert den schnellen Netzfluss; der IR-Leser dient für offizielle Gesamtzählerstände und Plausibilität. Dashboard-Summen sind keine eichrechtliche Abrechnung.</p><p><strong>Langfristiges Ziel:</strong> Die hochaufgelöste Historie soll unter anderem zeigen, ob zusätzliche Speicherkapazität technisch und wirtschaftlich sinnvoll wäre. Dafür zählt nicht jede Einspeisung pauschal als vermeidbar, sondern nur zeitlich tatsächlich verschiebbarer Überschuss.</p></div>
+    </section>
+
+    <footer><span>© Marc Schulz 2026</span><span>Nur lesender Betrieb</span><span>Keine Steuerbefehle implementiert</span><time id="measurement-time">—</time></footer>
+  </main>
+</body>
+</html>

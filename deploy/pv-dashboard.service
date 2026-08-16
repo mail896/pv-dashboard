@@ -1,0 +1,22 @@
+[Unit]
+Description=Lokales PV-Energie-Dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pv-dashboard
+Group=pv-dashboard
+WorkingDirectory=/opt/pv-dashboard
+EnvironmentFile=-/etc/pv-dashboard.env
+ExecStart=/opt/pv-dashboard/.venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/pv-dashboard/data
+
+[Install]
+WantedBy=multi-user.target

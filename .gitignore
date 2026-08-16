@@ -1,0 +1,12 @@
+.env
+.venv/
+data/
+__pycache__/
+*.py[cod]
+*.sqlite*
+*.db
+*.log
+.DS_Store
+._*
+dist/
+site/.jekyll-cache/
