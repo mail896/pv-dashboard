@@ -566,11 +566,14 @@ html[data-theme="dark"] .status-pill.offline { background:rgba(237,120,108,.08);
 
 @media (max-width: 760px) {
   .dashboard-shell { width:min(100% - 24px, 640px); padding-top:14px; }
-  .topbar { align-items:flex-start; gap:18px; }
-  .topbar-meta { flex-direction:column; align-items:flex-end; gap:5px; }
-  .topbar-brand { gap:9px; }
+  .topbar { flex-direction:column; align-items:stretch; gap:7px; }
+  .topbar-brand { justify-content:space-between; gap:6px; }
+  .brand-lockup { gap:10px; min-width:0; }
+  .brand-mark { width:44px; height:44px; flex:0 0 44px; }
+  .brand-lockup h1 { font-size:18px; white-space:nowrap; }
+  .topbar-meta { flex-direction:row; justify-content:flex-end; align-items:center; gap:10px; }
   .project-links { gap:4px; }
-  .project-links a { width:28px; height:28px; justify-content:center; padding:0; }
+  .project-links a { width:26px; height:26px; justify-content:center; padding:0; }
   .project-links a span { display:none; }
   .hero-grid, .details-grid, .source-grid { grid-template-columns:1fr; }
   .device-status-grid { grid-template-columns:1fr; }
