@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import shutil
 import sqlite3
+import time
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -20,6 +21,7 @@ RANGES = {
 class Storage:
     def __init__(self, path: Path):
         self.path = path
+        self._runtime_cache: dict[str, tuple[float, Any]] = {}
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.initialize()
 
@@ -706,6 +708,17 @@ class Storage:
         start_local = datetime.combine(first_day, datetime.min.time(), tzinfo=local_zone)
         start_utc = start_local.astimezone(timezone.utc)
         end_utc = datetime.combine(last_day + timedelta(days=1), datetime.min.time(), tzinfo=local_zone).astimezone(timezone.utc)
+        cache_key = f"battery-statistics-v1:{first_day}:{last_day}"
+        is_current_page = last_day == now_local.date()
+        runtime = self._runtime_cache.get(cache_key) if is_current_page else None
+        if runtime and time.monotonic() - runtime[0] < 30:
+            return {**runtime[1], "cache": "memory"}
+        cache_fingerprint = None
+        if last_day < now_local.date():
+            cache_fingerprint = self._measurement_fingerprint(start_utc, end_utc)
+            cached = self._cache_get(cache_key, cache_fingerprint)
+            if cached is not None:
+                return {**cached, "cache": "hit"}
         with self.connect() as connection:
             bounds = connection.execute("SELECT MIN(timestamp) AS first FROM measurements").fetchone()
             rows = connection.execute(
@@ -798,7 +811,7 @@ class Storage:
             for day in observed
         )
         first_recorded = datetime.fromisoformat(bounds["first"]).astimezone(local_zone).date() if bounds and bounds["first"] else None
-        return {
+        payload = {
             "timezone": "Europe/Berlin",
             "anchor": last_day.isoformat(), "page_start": first_day.isoformat(), "page_end": last_day.isoformat(),
             "today": now_local.date().isoformat(), "has_older": bool(first_recorded and first_day > first_recorded),
@@ -814,6 +827,14 @@ class Storage:
             },
             "days": result,
         }
+        if cache_fingerprint is not None:
+            self._cache_set(cache_key, cache_fingerprint, payload)
+            payload["cache"] = "created"
+        else:
+            payload["cache"] = "live"
+        if is_current_page:
+            self._runtime_cache[cache_key] = (time.monotonic(), payload)
+        return payload
 
     def solar_profiles(self, days: int = 7, bucket_minutes: int = 10, anchor: str | None = None) -> dict[str, Any]:
         """Build local-time daily production profiles for east and south/west."""

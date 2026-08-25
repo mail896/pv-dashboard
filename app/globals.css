@@ -417,6 +417,7 @@ html[data-theme="dark"] .dashboard-tabs .all-sections-toggle { background:transp
 .event-pagination button { padding:8px 13px; border:1px solid var(--line); border-radius:9px; color:var(--muted); background:var(--panel-2); cursor:pointer; font:inherit; }
 .event-pagination button:hover:not(:disabled) { color:var(--text); }
 .event-pagination button:disabled { opacity:.38; cursor:default; }
+.event-pagination button[hidden] { display:none; }
 .event-pagination strong { min-width:100px; color:var(--muted); text-align:center; font-size:10px; }
 .source-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:1px; overflow:hidden; border:1px solid var(--line); border-radius:12px; background:var(--line); }
 .source-grid > div { display:grid; grid-template-columns:1fr auto; grid-template-rows:auto auto; align-items:center; padding:17px; background:#ffffff; }

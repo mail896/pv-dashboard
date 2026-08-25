@@ -744,9 +744,10 @@
       });
       const newer = $("device-events-newer");
       const older = $("device-events-older");
-      if (newer) newer.disabled = !payload.has_newer;
-      if (older) older.disabled = !payload.has_older;
-      text("device-events-page", `Seite ${payload.page} von ${payload.page_count} · ${payload.total} Ereignisse`);
+      const singlePage = Number(payload.page_count) <= 1;
+      if (newer) { newer.hidden = singlePage; newer.disabled = !payload.has_newer; }
+      if (older) { older.hidden = singlePage; older.disabled = !payload.has_older; }
+      text("device-events-page", singlePage ? `Alle ${payload.total} Ereignisse` : `Seite ${payload.page} von ${payload.page_count} · ${payload.total} Ereignisse`);
     } catch {
       empty(container, "Ereignishistorie derzeit nicht erreichbar");
     }
