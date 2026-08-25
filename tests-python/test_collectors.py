@@ -196,6 +196,31 @@ class CollectorTests(unittest.TestCase):
         self.assertIsNotNone(today["solakon"]["start"])
         self.assertIsNotNone(today["crossover"])
 
+    def test_closed_solar_profile_cache_is_reused_and_invalidated(self) -> None:
+        now = datetime.now(timezone.utc)
+        previous_month_end = now.replace(day=1) - timedelta(days=1)
+
+        def snapshot(at: datetime, watts: float) -> dict:
+            return {
+                "timestamp": at.isoformat(),
+                "pv": {"total_w": watts * 2, "solakon_one_w": watts, "ez1_east_w": watts},
+                "house": {"consumption_w": watts * 2}, "grid": {"power_w": 0.0},
+                "battery": {"power_w": 0.0, "soc_percent": 50.0},
+                "autarky_percent": 100.0, "quality": "complete",
+            }
+
+        with tempfile.TemporaryDirectory() as directory:
+            storage = Storage(Path(directory) / "energy.sqlite3")
+            storage.insert(snapshot(previous_month_end.replace(hour=12), 200.0))
+            first = storage.solar_profiles(1, anchor=previous_month_end.date().isoformat())
+            second = storage.solar_profiles(1, anchor=previous_month_end.date().isoformat())
+            storage.insert(snapshot(previous_month_end.replace(hour=13), 300.0))
+            third = storage.solar_profiles(1, anchor=previous_month_end.date().isoformat())
+
+        self.assertEqual(first["cache"], "created")
+        self.assertEqual(second["cache"], "hit")
+        self.assertEqual(third["cache"], "created")
+
     def test_energy_series_uses_calendar_buckets_and_skips_long_gaps(self) -> None:
         def snapshot(at: datetime, pv_w: float, house_w: float, grid_w: float, battery_w: float) -> dict:
             return {

@@ -13,8 +13,10 @@ flows, history, statistics, records, battery analytics and exports.
 - vanilla HTML, CSS and JavaScript frontend
 - local Chart.js bundle without runtime CDN dependency
 - five-second measurement storage and calendar-aware energy integration
+- paginated daily statistics and weekly, monthly and annual solar analysis
+- automatically invalidated SQLite cache for completed solar periods
 - compressed machine-readable raw-data export
-- systemd deployment example and nine backend/data tests
+- systemd deployment example and ten backend/data tests
 
 See the [German README](README.md) for screenshots, quick start and the full
 documentation index.

@@ -5,11 +5,16 @@
   let activeRange = "24h";
   let historyPoints = [];
   let solarProfileDays = [];
+  const solarQuery = new URLSearchParams(window.location.search);
+  let solarProfilePeriod = ["month", "year"].includes(solarQuery.get("solar")) ? solarQuery.get("solar") : "week";
+  const solarDateQuery = solarQuery.get("solar_date");
+  let solarProfileAnchor = /^\d{4}-\d{2}-\d{2}$/.test(solarDateQuery || "") ? new Date(`${solarDateQuery}T12:00:00`) : new Date();
   let temperatureRange = "24h";
   let temperaturePoints = [];
   let historyChart = null;
   let energyChart = null;
   let socChart = null;
+  let solarYearChart = null;
   let energyPeriod = "day";
   let energyView = "balance";
   let energyAnchor = new Date();
@@ -916,7 +921,9 @@
       const date = new Date(`${day.date}T12:00:00`);
       context.fillStyle = muted;
       context.textAlign = "left";
-      context.fillText(date.toLocaleDateString("de-DE", { weekday: "short", day: "2-digit" }), 2, y + rowHeight / 2);
+      context.fillText(date.toLocaleDateString("de-DE", solarProfilePeriod === "month"
+        ? { day: "2-digit", month: "2-digit" }
+        : { weekday: "short", day: "2-digit" }), 2, y + rowHeight / 2);
       context.strokeStyle = line;
       context.strokeRect(padding.left, y + 2, width, Math.max(1, rowHeight - 4));
       (day.points || []).forEach((point) => {
@@ -940,10 +947,42 @@
 
   function renderSolarProfiles(payload) {
     solarProfileDays = Array.isArray(payload.days) ? payload.days : [];
+    const panel = document.querySelector(".solar-profile-panel");
+    panel?.classList.toggle("monthly", solarProfilePeriod === "month");
+    panel?.classList.remove("yearly");
+    text("solar-profile-eyebrow", solarProfilePeriod === "month" ? "Monatsverlauf" : "Wochenverlauf");
+    text("solar-method-note", "10‑Minuten-Mittelwerte · Farbe = Leistung · Aktiv ab 10 W");
+    text("solar-analysis-note", "„Wechsel“ markiert den ersten stabilen 10‑Minuten-Abschnitt, in dem Süd/West die zuvor stärkere Ostseite um mindestens 20 W überholt. Wolken können den Zeitpunkt verschieben; der saisonale Trend wird mit längerer Historie deutlich.");
+    const start = payload.start ? new Date(`${payload.start}T12:00:00`) : null;
+    const end = payload.end ? new Date(`${payload.end}T12:00:00`) : null;
+    text("solar-period-label", solarProfilePeriod === "month" && end
+      ? end.toLocaleDateString("de-DE", { month: "long", year: "numeric" })
+      : start && end ? `${start.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}–${end.toLocaleDateString("de-DE")}` : "—");
+    const currentButton = $("solar-current");
+    const nextButton = $("solar-next");
+    const isCurrent = payload.end === payload.today;
+    if (currentButton) currentButton.hidden = isCurrent;
+    if (nextButton) nextButton.disabled = isCurrent;
+    const summary = $("solar-month-summary");
+    if (summary) summary.hidden = solarProfilePeriod !== "month";
+    if (solarProfilePeriod === "month") {
+      const observed = solarProfileDays.filter((day) => day.ez1?.start || day.solakon?.start);
+      const starts = observed.flatMap((day) => [day.ez1?.start, day.solakon?.start]).filter(Boolean).sort();
+      const ends = observed.flatMap((day) => [day.ez1?.end, day.solakon?.end]).filter(Boolean).sort();
+      const eastPeaks = observed.map((day) => Number(day.ez1?.peak_w)).filter(Number.isFinite);
+      const solakonPeaks = observed.map((day) => Number(day.solakon?.peak_w)).filter(Number.isFinite);
+      const crossovers = observed.map((day) => day.crossover).filter(Boolean).sort();
+      text("solar-active-days", `${observed.length} Tage`);
+      text("solar-earliest-start", starts[0] || "—");
+      text("solar-latest-end", ends[ends.length - 1] || "—");
+      text("solar-east-max", eastPeaks.length ? power(Math.max(...eastPeaks)) : "—");
+      text("solar-solakon-max", solakonPeaks.length ? power(Math.max(...solakonPeaks)) : "—");
+      text("solar-crossover-median", crossovers.length ? crossovers[Math.floor(crossovers.length / 2)] : "—");
+    }
     const container = $("solar-profile-days");
     if (container) {
       container.replaceChildren();
-      solarProfileDays.slice().reverse().forEach((day) => {
+      if (solarProfilePeriod === "week") solarProfileDays.slice().reverse().forEach((day) => {
         if (!Array.isArray(day.points) || day.points.length === 0) return;
         const row = document.createElement("div");
         row.className = "profile-row";
@@ -965,9 +1004,77 @@
     drawSolarProfiles();
   }
 
+  function renderSolarYear(payload) {
+    solarProfileDays = [];
+    const panel = document.querySelector(".solar-profile-panel");
+    panel?.classList.remove("monthly");
+    panel?.classList.add("yearly");
+    text("solar-profile-eyebrow", "Jahresverlauf");
+    text("solar-method-note", "Tagesertrag aus verdichteten Messwerten · Messlücken werden nicht hochgerechnet");
+    text("solar-analysis-note", "Die Kurven zeigen den gemessenen Tagesertrag beider PV-Flächen. Noch nicht aufgezeichnete oder vollständig fehlende Tage bleiben als Lücke sichtbar; der laufende Tag ist naturgemäß unvollständig.");
+    text("solar-period-label", String(payload.year || "—"));
+    const currentYear = Number(payload.year) === new Date().getFullYear();
+    const currentButton = $("solar-current");
+    const nextButton = $("solar-next");
+    if (currentButton) currentButton.hidden = currentYear;
+    if (nextButton) nextButton.disabled = currentYear;
+    const summary = $("solar-month-summary");
+    if (summary) summary.hidden = true;
+    const yearView = $("solar-year-view");
+    if (yearView) yearView.hidden = false;
+    const months = $("solar-year-months");
+    if (months) {
+      months.replaceChildren();
+      (payload.months || []).forEach((month) => {
+        const card = document.createElement("div");
+        card.className = `solar-year-month${month.active_days ? "" : " empty"}`;
+        const date = new Date(Number(payload.year), Number(month.month) - 1, 1);
+        const best = month.best_day ? new Date(`${month.best_day}T12:00:00`).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) : "—";
+        card.innerHTML = `<span>${date.toLocaleDateString("de-DE", { month: "long" })}</span><strong>${energy(Number(month.solakon_kwh || 0) + Number(month.ez1_kwh || 0), 1)}</strong><b>Ost ${energy(month.ez1_kwh, 1)} · S/W ${energy(month.solakon_kwh, 1)}</b><small>${month.active_days || 0} Tage · Bester ${best} (${energy(month.best_day_kwh, 1)}) · Ø ${number(month.average_active_hours, "h", 1)}</small>`;
+        months.append(card);
+      });
+    }
+    const canvas = $("solar-year-chart");
+    if (canvas instanceof HTMLCanvasElement && typeof Chart !== "undefined") {
+      const colors = chartColors();
+      const points = payload.points || [];
+      solarYearChart?.destroy();
+      const options = commonChartOptions();
+      options.scales.y.beginAtZero = true;
+      options.scales.y.ticks.callback = (value) => `${value} kWh`;
+      options.scales.x.ticks.maxTicksLimit = 12;
+      options.plugins.tooltip.callbacks.title = (items) => items[0]?.label || "";
+      solarYearChart = new Chart(canvas, { type: "line", data: {
+        labels: points.map((point) => new Date(`${point.date}T12:00:00`).toLocaleDateString("de-DE")),
+        datasets: [
+          { label: "Ost", unit: "kWh", data: points.map((point) => point.ez1_kwh || null), borderColor: "#256db1", backgroundColor: "#256db1", pointRadius: 0, borderWidth: 1.5, tension: .12, spanGaps: false },
+          { label: "Süd / West", unit: "kWh", data: points.map((point) => point.solakon_kwh || null), borderColor: colors.pv, backgroundColor: colors.pv, pointRadius: 0, borderWidth: 1.7, tension: .12, spanGaps: false },
+        ],
+      }, options, plugins: [chartAreaBackground] });
+    }
+  }
+
   async function loadSolarProfiles() {
     try {
-      const response = await fetch("api/solar-profiles?days=7", { cache: "no-store" });
+      if (solarProfilePeriod === "year") {
+        const response = await fetch(`api/solar-year?year=${solarProfileAnchor.getFullYear()}`, { cache: "no-store" });
+        if (!response.ok) throw new Error("Jahresprofil nicht erreichbar");
+        renderSolarYear(await response.json());
+        return;
+      }
+      const yearView = $("solar-year-view");
+      if (yearView) yearView.hidden = true;
+      const now = new Date();
+      let anchor = new Date(solarProfileAnchor);
+      let days = 7;
+      if (solarProfilePeriod === "month") {
+        const sameMonth = anchor.getFullYear() === now.getFullYear() && anchor.getMonth() === now.getMonth();
+        anchor = sameMonth ? now : new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0, 12);
+        days = anchor.getDate();
+      }
+      if (anchor > now) anchor = now;
+      const anchorValue = `${anchor.getFullYear()}-${String(anchor.getMonth() + 1).padStart(2, "0")}-${String(anchor.getDate()).padStart(2, "0")}`;
+      const response = await fetch(`api/solar-profiles?days=${days}&anchor=${anchorValue}`, { cache: "no-store" });
       if (!response.ok) throw new Error("Solarprofil nicht erreichbar");
       renderSolarProfiles(await response.json());
     } catch {
@@ -1292,6 +1399,40 @@
       void loadEnergySeries();
     });
   });
+  const persistSolarProfileState = () => {
+    const url = new URL(window.location.href);
+    if (solarProfilePeriod !== "week") url.searchParams.set("solar", solarProfilePeriod);
+    else url.searchParams.delete("solar");
+    const now = new Date();
+    const isCurrent = solarProfileAnchor.getFullYear() === now.getFullYear()
+      && solarProfileAnchor.getMonth() === now.getMonth()
+      && (solarProfilePeriod === "month" || solarProfilePeriod === "year" || solarProfileAnchor.toDateString() === now.toDateString());
+    if (isCurrent) url.searchParams.delete("solar_date");
+    else url.searchParams.set("solar_date", `${solarProfileAnchor.getFullYear()}-${String(solarProfileAnchor.getMonth() + 1).padStart(2, "0")}-${String(solarProfileAnchor.getDate()).padStart(2, "0")}`);
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  };
+  document.querySelectorAll("[data-solar-period]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.solarPeriod === solarProfilePeriod);
+    button.addEventListener("click", () => {
+      solarProfilePeriod = button.dataset.solarPeriod || "week";
+      solarProfileAnchor = new Date();
+      document.querySelectorAll("[data-solar-period]").forEach((candidate) => candidate.classList.toggle("active", candidate === button));
+      persistSolarProfileState();
+      void loadSolarProfiles();
+    });
+  });
+  const shiftSolarProfile = (direction) => {
+    const next = new Date(solarProfileAnchor);
+    if (solarProfilePeriod === "year") next.setFullYear(next.getFullYear() + direction, 0, 1);
+    else if (solarProfilePeriod === "month") next.setMonth(next.getMonth() + direction, 1);
+    else next.setDate(next.getDate() + direction * 7);
+    solarProfileAnchor = next > new Date() ? new Date() : next;
+    persistSolarProfileState();
+    void loadSolarProfiles();
+  };
+  $("solar-previous")?.addEventListener("click", () => shiftSolarProfile(-1));
+  $("solar-next")?.addEventListener("click", () => shiftSolarProfile(1));
+  $("solar-current")?.addEventListener("click", () => { solarProfileAnchor = new Date(); persistSolarProfileState(); void loadSolarProfiles(); });
   document.querySelectorAll("[data-energy-view]").forEach((button) => {
     button.addEventListener("click", () => {
       energyView = button.dataset.energyView || "balance";
@@ -1408,7 +1549,7 @@
     drawSolarProfiles();
   });
   window.addEventListener("resize", () => {
-    historyChart?.resize(); energyChart?.resize(); socChart?.resize();
+    historyChart?.resize(); energyChart?.resize(); socChart?.resize(); solarYearChart?.resize();
     drawTemperatureHistory(); drawSolarProfiles();
   });
   syncThemeLabel();

@@ -260,8 +260,19 @@ def battery_statistics(days: int = Query(default=31, ge=1, le=3660)) -> dict[str
 
 
 @app.get("/api/solar-profiles")
-def solar_profiles(days: int = Query(default=7, ge=1, le=31)) -> dict[str, Any]:
-    return storage.solar_profiles(days)
+def solar_profiles(
+    days: int = Query(default=7, ge=1, le=31),
+    anchor: str | None = Query(default=None),
+) -> dict[str, Any]:
+    try:
+        return storage.solar_profiles(days, anchor=anchor)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/solar-year")
+def solar_year(year: int = Query(default=datetime.now().year, ge=2000, le=2100)) -> dict[str, Any]:
+    return storage.solar_year(year)
 
 
 @app.get("/api/availability/ez1")

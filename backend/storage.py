@@ -82,6 +82,16 @@ class Storage:
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_source_events_source_timestamp ON source_events(source, timestamp)"
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS derived_cache (
+                    cache_key TEXT PRIMARY KEY,
+                    fingerprint TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
             event_count = connection.execute(
                 "SELECT COUNT(*) AS count FROM source_events WHERE source = 'ez1'"
             ).fetchone()["count"]
@@ -101,6 +111,36 @@ class Storage:
                         )
                         previous_state = state
             connection.execute("PRAGMA optimize")
+
+    def _measurement_fingerprint(self, start_utc: datetime, end_utc: datetime) -> str:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) AS count, MAX(id) AS max_id FROM measurements WHERE timestamp >= ? AND timestamp < ?",
+                (start_utc.isoformat(timespec="seconds"), end_utc.isoformat(timespec="seconds")),
+            ).fetchone()
+        return f"{int(row['count'] or 0)}:{int(row['max_id'] or 0)}"
+
+    def _cache_get(self, key: str, fingerprint: str) -> Any | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT payload_json FROM derived_cache WHERE cache_key = ? AND fingerprint = ?",
+                (key, fingerprint),
+            ).fetchone()
+        return json.loads(row["payload_json"]) if row else None
+
+    def _cache_set(self, key: str, fingerprint: str, payload: Any) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO derived_cache(cache_key, fingerprint, payload_json, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(cache_key) DO UPDATE SET
+                    fingerprint = excluded.fingerprint,
+                    payload_json = excluded.payload_json,
+                    updated_at = excluded.updated_at
+                """,
+                (key, fingerprint, json.dumps(payload, separators=(",", ":")), datetime.now(timezone.utc).isoformat()),
+            )
 
     def insert(self, snapshot: dict[str, Any]) -> None:
         with self.connect() as connection:
@@ -751,35 +791,52 @@ class Storage:
             "days": result,
         }
 
-    def solar_profiles(self, days: int = 7, bucket_minutes: int = 10) -> dict[str, Any]:
+    def solar_profiles(self, days: int = 7, bucket_minutes: int = 10, anchor: str | None = None) -> dict[str, Any]:
         """Build local-time daily production profiles for east and south/west."""
         local_zone = ZoneInfo("Europe/Berlin")
         day_count = max(1, days)
         bucket_size = max(5, bucket_minutes)
         now_local = datetime.now(local_zone)
-        first_day = now_local.date() - timedelta(days=day_count - 1)
+        try:
+            requested_last_day = date.fromisoformat(anchor) if anchor else now_local.date()
+        except ValueError as error:
+            raise ValueError("Ungültiges Ankerdatum") from error
+        last_day = min(requested_last_day, now_local.date())
+        first_day = last_day - timedelta(days=day_count - 1)
         start_local = datetime.combine(first_day, datetime.min.time(), tzinfo=local_zone)
         start_utc = start_local.astimezone(timezone.utc)
+        end_utc = datetime.combine(last_day + timedelta(days=1), datetime.min.time(), tzinfo=local_zone).astimezone(timezone.utc)
+        cache_key = f"solar-profile-v1:{first_day}:{last_day}:{bucket_size}"
+        cache_fingerprint = None
+        if last_day < now_local.date().replace(day=1):
+            cache_fingerprint = self._measurement_fingerprint(start_utc, end_utc)
+            cached = self._cache_get(cache_key, cache_fingerprint)
+            if cached is not None:
+                cached["cache"] = "hit"
+                return cached
+        buckets: dict[str, dict[int, dict[str, float]]] = {}
         with self.connect() as connection:
             rows = connection.execute(
                 """
                 SELECT timestamp, pv_solakon_w, pv_ez1_w
                 FROM measurements
-                WHERE timestamp >= ? ORDER BY timestamp ASC
+                WHERE timestamp >= ? AND timestamp < ? ORDER BY timestamp ASC
                 """,
-                (start_utc.isoformat(timespec="seconds"),),
-            ).fetchall()
-
-        buckets: dict[str, dict[int, dict[str, list[float]]]] = {}
-        for row in rows:
-            timestamp = datetime.fromisoformat(row["timestamp"]).astimezone(local_zone)
-            day = timestamp.date().isoformat()
-            minute = (timestamp.hour * 60 + timestamp.minute) // bucket_size * bucket_size
-            values = buckets.setdefault(day, {}).setdefault(minute, {"solakon": [], "ez1": []})
-            if row["pv_solakon_w"] is not None:
-                values["solakon"].append(max(0.0, float(row["pv_solakon_w"])))
-            if row["pv_ez1_w"] is not None:
-                values["ez1"].append(max(0.0, float(row["pv_ez1_w"])))
+                (start_utc.isoformat(timespec="seconds"), end_utc.isoformat(timespec="seconds")),
+            )
+            for row in rows:
+                timestamp = datetime.fromisoformat(row["timestamp"]).astimezone(local_zone)
+                day = timestamp.date().isoformat()
+                minute = (timestamp.hour * 60 + timestamp.minute) // bucket_size * bucket_size
+                values = buckets.setdefault(day, {}).setdefault(minute, {
+                    "solakon_sum": 0.0, "solakon_count": 0.0, "ez1_sum": 0.0, "ez1_count": 0.0,
+                })
+                if row["pv_solakon_w"] is not None:
+                    values["solakon_sum"] += max(0.0, float(row["pv_solakon_w"]))
+                    values["solakon_count"] += 1
+                if row["pv_ez1_w"] is not None:
+                    values["ez1_sum"] += max(0.0, float(row["pv_ez1_w"]))
+                    values["ez1_count"] += 1
 
         def clock(minute: int | None) -> str | None:
             return None if minute is None else f"{minute // 60:02d}:{minute % 60:02d}"
@@ -789,8 +846,8 @@ class Storage:
             day = (first_day + timedelta(days=offset)).isoformat()
             points = []
             for minute, values in sorted(buckets.get(day, {}).items()):
-                solakon = sum(values["solakon"]) / len(values["solakon"]) if values["solakon"] else None
-                ez1 = sum(values["ez1"]) / len(values["ez1"]) if values["ez1"] else None
+                solakon = values["solakon_sum"] / values["solakon_count"] if values["solakon_count"] else None
+                ez1 = values["ez1_sum"] / values["ez1_count"] if values["ez1_count"] else None
                 points.append({
                     "minute": minute,
                     "solakon_w": None if solakon is None else round(solakon, 1),
@@ -830,11 +887,118 @@ class Storage:
                 },
                 "crossover": clock(crossover),
             })
-        return {
+        payload = {
             "timezone": "Europe/Berlin",
             "bucket_minutes": bucket_size,
             "threshold_w": 10,
+            "anchor": last_day.isoformat(),
+            "start": first_day.isoformat(),
+            "end": last_day.isoformat(),
+            "today": now_local.date().isoformat(),
             "days": result,
+        }
+        if cache_fingerprint is not None:
+            self._cache_set(cache_key, cache_fingerprint, payload)
+            payload["cache"] = "created"
+        else:
+            payload["cache"] = "live"
+        return payload
+
+    def _solar_year_points(self, first_day: date, last_day: date, local_zone: ZoneInfo) -> list[dict[str, Any]]:
+        start_utc = datetime.combine(first_day, datetime.min.time(), tzinfo=local_zone).astimezone(timezone.utc)
+        end_utc = datetime.combine(last_day + timedelta(days=1), datetime.min.time(), tzinfo=local_zone).astimezone(timezone.utc)
+        daily: dict[str, dict[str, float]] = {}
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT CAST(strftime('%s', timestamp) / 600 AS INTEGER) AS bucket,
+                       AVG(pv_solakon_w) AS solakon_w,
+                       AVG(pv_ez1_w) AS ez1_w,
+                       COUNT(pv_solakon_w) AS solakon_count,
+                       COUNT(pv_ez1_w) AS ez1_count
+                FROM measurements
+                WHERE timestamp >= ? AND timestamp < ?
+                GROUP BY bucket ORDER BY bucket
+                """,
+                (start_utc.isoformat(timespec="seconds"), end_utc.isoformat(timespec="seconds")),
+            )
+            for row in rows:
+                timestamp = datetime.fromtimestamp(int(row["bucket"]) * 600, tz=timezone.utc).astimezone(local_zone)
+                key = timestamp.date().isoformat()
+                values = daily.setdefault(key, {
+                    "solakon_kwh": 0.0, "ez1_kwh": 0.0, "solakon_peak_w": 0.0,
+                    "ez1_peak_w": 0.0, "solakon_active_minutes": 0.0, "ez1_active_minutes": 0.0,
+                })
+                for source in ("solakon", "ez1"):
+                    power_w = max(0.0, float(row[f"{source}_w"] or 0.0))
+                    covered_seconds = min(600.0, float(row[f"{source}_count"] or 0) * 5.0)
+                    values[f"{source}_kwh"] += power_w * covered_seconds / 3_600_000.0
+                    values[f"{source}_peak_w"] = max(values[f"{source}_peak_w"], power_w)
+                    if power_w >= 10:
+                        values[f"{source}_active_minutes"] += covered_seconds / 60.0
+
+        points = []
+        current = first_day
+        while current <= last_day:
+            values = daily.get(current.isoformat(), {
+                "solakon_kwh": 0.0, "ez1_kwh": 0.0, "solakon_peak_w": 0.0,
+                "ez1_peak_w": 0.0, "solakon_active_minutes": 0.0, "ez1_active_minutes": 0.0,
+            })
+            points.append({"date": current.isoformat(), **{key: round(value, 3) for key, value in values.items()}})
+            current += timedelta(days=1)
+        return points
+
+    def solar_year(self, year: int) -> dict[str, Any]:
+        """Return compact daily and monthly PV summaries for a calendar year.
+
+        Closed months are cached independently and invalidated automatically
+        when their raw measurement count or highest row id changes.
+        """
+        local_zone = ZoneInfo("Europe/Berlin")
+        today = datetime.now(local_zone).date()
+        selected_year = min(max(2000, year), today.year)
+        last_day = min(date(selected_year, 12, 31), today)
+        points: list[dict[str, Any]] = []
+        cache_hits = 0
+        cache_created = 0
+        for month in range(1, last_day.month + 1):
+            month_start = date(selected_year, month, 1)
+            next_month = date(selected_year + (month == 12), 1 if month == 12 else month + 1, 1)
+            month_end = min(next_month - timedelta(days=1), last_day)
+            closed = month_end < today.replace(day=1)
+            month_points = None
+            if closed:
+                start_utc = datetime.combine(month_start, datetime.min.time(), tzinfo=local_zone).astimezone(timezone.utc)
+                end_utc = datetime.combine(month_end + timedelta(days=1), datetime.min.time(), tzinfo=local_zone).astimezone(timezone.utc)
+                fingerprint = self._measurement_fingerprint(start_utc, end_utc)
+                key = f"solar-year-month-v1:{selected_year}-{month:02d}"
+                month_points = self._cache_get(key, fingerprint)
+                if month_points is None:
+                    month_points = self._solar_year_points(month_start, month_end, local_zone)
+                    self._cache_set(key, fingerprint, month_points)
+                    cache_created += 1
+                else:
+                    cache_hits += 1
+            if month_points is None:
+                month_points = self._solar_year_points(month_start, month_end, local_zone)
+            points.extend(month_points)
+
+        months = []
+        for month in range(1, 13):
+            month_points = [point for point in points if int(point["date"][5:7]) == month]
+            active = [point for point in month_points if point["solakon_kwh"] > 0 or point["ez1_kwh"] > 0]
+            months.append({
+                "month": month,
+                "solakon_kwh": round(sum(point["solakon_kwh"] for point in month_points), 2),
+                "ez1_kwh": round(sum(point["ez1_kwh"] for point in month_points), 2),
+                "active_days": len(active),
+                "best_day": max(active, key=lambda point: point["solakon_kwh"] + point["ez1_kwh"])["date"] if active else None,
+                "best_day_kwh": round(max((point["solakon_kwh"] + point["ez1_kwh"] for point in active), default=0.0), 2),
+                "average_active_hours": round(sum(max(point["solakon_active_minutes"], point["ez1_active_minutes"]) for point in active) / len(active) / 60.0, 1) if active else 0.0,
+            })
+        return {
+            "year": selected_year, "today": today.isoformat(), "points": points, "months": months,
+            "cache": {"hits": cache_hits, "created": cache_created, "live_months": 1 if selected_year == today.year else 0},
         }
 
     def source_availability(self, source: str, days: int = 366) -> dict[str, Any]:

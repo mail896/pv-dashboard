@@ -9,9 +9,9 @@
   <title>Schulzihausen PV | Wilhelm-Evers-Straße</title>
   <meta name="description" content="Lokales Live-Dashboard für Solakon ONE, APsystems EZ1, Shelly Pro 3EM und Tasmota IR-Zähler.">
   <script>try{document.documentElement.dataset.theme=localStorage.getItem("pv-theme")||"light"}catch(e){document.documentElement.dataset.theme="light"}</script>
-  <link rel="stylesheet" href="assets/dashboard.css?v=69">
+  <link rel="stylesheet" href="assets/dashboard.css?v=71">
   <script defer src="assets/chart.umd.min.js?v=4.5.1"></script>
-  <script defer src="assets/dashboard.js?v=61"></script>
+  <script defer src="assets/dashboard.js?v=63"></script>
 </head>
 <body>
   <main class="dashboard-shell" id="dashboard">
@@ -161,13 +161,22 @@
     </section>
 
     <section class="solar-profile-panel panel" data-dashboard-section="history">
-      <div class="section-heading"><div><p class="eyebrow">Wochenverlauf</p><h2>Sonnenverlauf Wilhelm-Evers-Str.</h2></div><p class="section-note">10‑Minuten-Mittelwerte · Farbe = Leistung · Aktiv ab 10 W</p></div>
+      <div class="section-heading history-heading"><div><p class="eyebrow" id="solar-profile-eyebrow">Wochenverlauf</p><h2>Sonnenverlauf Wilhelm-Evers-Str.</h2></div><div class="range-tabs" role="tablist" aria-label="Sonnenverlauf-Zeitraum wählen"><button data-solar-period="week" class="active">Woche</button><button data-solar-period="month">Monat</button><button data-solar-period="year">Jahr</button></div></div>
+      <div class="statistics-toolbar solar-profile-toolbar"><p class="section-note" id="solar-method-note">10‑Minuten-Mittelwerte · Farbe = Leistung · Aktiv ab 10 W</p><div class="period-navigation"><button id="solar-previous" type="button" aria-label="Vorheriger Zeitraum">‹</button><strong id="solar-period-label">—</strong><button id="solar-next" type="button" aria-label="Nächster Zeitraum">›</button><button id="solar-current" type="button" hidden>Aktuell</button></div></div>
       <div class="profile-heatmaps">
         <div><h3>Ost · APsystems EZ1</h3><canvas id="profile-east" aria-label="Wochenprofil der Ost-PV"></canvas></div>
         <div><h3>Süd / West · Solakon ONE</h3><canvas id="profile-solakon" aria-label="Wochenprofil der Süd-West-PV"></canvas></div>
       </div>
+      <div class="solar-month-summary" id="solar-month-summary" hidden>
+        <div><span>Aktive Tage</span><strong id="solar-active-days">—</strong></div><div><span>Frühester Start</span><strong id="solar-earliest-start">—</strong></div><div><span>Spätestes Ende</span><strong id="solar-latest-end">—</strong></div><div><span>Ost Maximum</span><strong id="solar-east-max">—</strong></div><div><span>S/W Maximum</span><strong id="solar-solakon-max">—</strong></div><div><span>Typischer Wechsel</span><strong id="solar-crossover-median">—</strong></div>
+      </div>
+      <div class="solar-year-view" id="solar-year-view" hidden>
+        <div class="solar-year-chart-wrap"><canvas id="solar-year-chart" aria-label="Tägliche PV-Erträge im Jahresverlauf"></canvas></div>
+        <div class="solar-year-legend"><span><i></i>Ost</span><span><i></i>Süd / West</span><small>Tagesertrag · fehlende Messungen werden nicht hochgerechnet</small></div>
+        <div class="solar-year-months" id="solar-year-months"></div>
+      </div>
       <div class="profile-table"><div class="profile-row profile-head"><span>Tag</span><span>Ost Start</span><span>Ost Peak</span><span>Ost Ende</span><span>Wechsel</span><span>S/W Start</span><span>S/W Peak</span><span>S/W Ende</span></div><div id="solar-profile-days"></div></div>
-      <p class="analysis-note">„Wechsel“ markiert den ersten stabilen 10‑Minuten-Abschnitt, in dem Süd/West die zuvor stärkere Ostseite um mindestens 20 W überholt. Wolken können den Zeitpunkt verschieben; der saisonale Trend wird mit längerer Historie deutlich.</p>
+      <p class="analysis-note" id="solar-analysis-note">„Wechsel“ markiert den ersten stabilen 10‑Minuten-Abschnitt, in dem Süd/West die zuvor stärkere Ostseite um mindestens 20 W überholt. Wolken können den Zeitpunkt verschieben; der saisonale Trend wird mit längerer Historie deutlich.</p>
     </section>
 
     <section class="economics-panel panel" data-dashboard-section="economics">

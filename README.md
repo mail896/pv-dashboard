@@ -14,6 +14,9 @@ interactive charts, calendar-aware statistics and protected data exports.
 - Live energy flow for PV, household load, grid and battery.
 - SQLite history in WAL mode, normally sampled every five seconds.
 - Interactive power charts and energy aggregation by day, week, month and year.
+- Paginated seven-day statistics with URL state and incomplete-day markers.
+- Weekly/monthly solar heatmaps and a compact annual yield view with monthly cards.
+- Automatically invalidated SQLite cache for completed solar periods; raw samples remain unchanged.
 - Battery state, charge/discharge energy, temperature and operating limits.
 - Daily and instantaneous records with measurement-coverage checks.
 - Calendar CSV plus ZIP-compressed raw export at 5 s, 1 min or 15 min resolution.
@@ -84,8 +87,8 @@ the production-specific PAM/TOTP configuration is intentionally not shipped.
 .venv/bin/python -m unittest discover -s tests-python -v
 ```
 
-The repository includes nine data and collector tests covering normalization,
-calendar aggregation, gaps, battery statistics, records and storage round trips.
+The repository includes ten data and collector tests covering normalization,
+calendar aggregation, gaps, battery statistics, derived-cache invalidation, records and storage round trips.
 
 ## License
 

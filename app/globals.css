@@ -198,10 +198,34 @@ html[data-theme="dark"] .dashboard-tabs .all-sections-toggle { background:transp
 .amortization-progress span { display:block; height:100%; background:linear-gradient(90deg,var(--green),#bde9d4); }
 .analysis-note { margin:10px 0 0; color:var(--muted); font-size:9px; line-height:1.5; }
 .solar-profile-panel { margin-top:10px; padding:18px 20px; border-radius:14px; }
+.solar-profile-toolbar { margin-bottom:0; }
+.solar-profile-toolbar .section-note { margin:0; }
 .profile-heatmaps { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:14px; }
 .profile-heatmaps > div { min-width:0; padding:12px; border:1px solid var(--line); border-radius:11px; background:var(--panel); }
 .profile-heatmaps h3 { margin:0 0 7px; font-size:11px; font-weight:700; }
 .profile-heatmaps canvas { display:block; width:100%; height:230px; }
+.solar-profile-panel.monthly .profile-heatmaps canvas { height:410px; }
+.solar-profile-panel.monthly .profile-table { display:none; }
+.solar-profile-panel.yearly .profile-heatmaps,.solar-profile-panel.yearly .profile-table { display:none; }
+.solar-month-summary { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:1px; margin-top:12px; overflow:hidden; border:1px solid var(--line); border-radius:11px; background:var(--line); }
+.solar-month-summary[hidden] { display:none; }
+.solar-month-summary > div { padding:11px; background:var(--panel); }
+.solar-month-summary span { display:block; color:var(--muted); font-size:8px; }
+.solar-month-summary strong { display:block; margin-top:4px; font-size:13px; font-variant-numeric:tabular-nums; }
+.solar-year-view[hidden] { display:none; }
+.solar-year-chart-wrap { height:310px; padding:12px; border:1px solid var(--line); border-radius:11px; background:var(--panel); }
+.solar-year-chart-wrap canvas { width:100%; height:100%; }
+.solar-year-legend { display:flex; align-items:center; gap:16px; margin:9px 2px 0; color:var(--muted); font-size:9px; }
+.solar-year-legend span { display:flex; align-items:center; gap:5px; }
+.solar-year-legend i { width:16px; height:3px; border-radius:2px; background:#256db1; }
+.solar-year-legend span:nth-child(2) i { background:#d49b08; }
+.solar-year-legend small { margin-left:auto; }
+.solar-year-months { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:7px; margin-top:12px; }
+.solar-year-month { padding:10px; border:1px solid var(--line); border-radius:9px; background:var(--panel); }
+.solar-year-month > span,.solar-year-month small { display:block; color:var(--muted); font-size:8px; }
+.solar-year-month strong { display:block; margin:3px 0; font-size:14px; }
+.solar-year-month b { color:var(--text); font-size:9px; font-weight:650; }
+.solar-year-month.empty { opacity:.48; }
 .profile-table { margin-top:12px; overflow-x:auto; }
 .profile-row { display:grid; grid-template-columns:1.1fr repeat(7,1fr); gap:10px; min-width:850px; padding:10px 4px; border-top:1px solid var(--line); color:var(--muted); font-size:10px; }
 .profile-row span:not(:first-child) { text-align:right; font-variant-numeric:tabular-nums; }
@@ -610,6 +634,15 @@ html[data-theme="dark"] .status-pill.offline { background:rgba(237,120,108,.08);
   .amortization-heading { align-items:flex-start; flex-direction:column; }
   .battery-summary { grid-template-columns:repeat(2,1fr); }
   .profile-heatmaps { grid-template-columns:1fr; }
+  .solar-profile-toolbar { align-items:stretch; }
+  .solar-profile-toolbar .period-navigation { width:100%; flex-wrap:nowrap; }
+  .solar-profile-toolbar .period-navigation strong { min-width:0; flex:1; }
+  .solar-month-summary { grid-template-columns:repeat(2,1fr); }
+  .solar-profile-panel.monthly .profile-heatmaps canvas { height:360px; }
+  .solar-year-chart-wrap { height:250px; padding:7px; }
+  .solar-year-legend { flex-wrap:wrap; gap:8px 13px; }
+  .solar-year-legend small { width:100%; margin-left:0; }
+  .solar-year-months { grid-template-columns:repeat(2,1fr); }
   .info-lead,.info-grid,.info-technical-grid,.info-notes { grid-template-columns:1fr; }
   .info-facts { grid-template-columns:repeat(2,1fr); }
   .code-facts { grid-template-columns:repeat(2,1fr); }
