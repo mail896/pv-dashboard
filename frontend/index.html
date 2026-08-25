@@ -9,9 +9,9 @@
   <title>Schulzihausen PV | Wilhelm-Evers-Straße</title>
   <meta name="description" content="Lokales Live-Dashboard für Solakon ONE, APsystems EZ1, Shelly Pro 3EM und Tasmota IR-Zähler.">
   <script>try{document.documentElement.dataset.theme=localStorage.getItem("pv-theme")||"light"}catch(e){document.documentElement.dataset.theme="light"}</script>
-  <link rel="stylesheet" href="assets/dashboard.css?v=71">
+  <link rel="stylesheet" href="assets/dashboard.css?v=72">
   <script defer src="assets/chart.umd.min.js?v=4.5.1"></script>
-  <script defer src="assets/dashboard.js?v=63"></script>
+  <script defer src="assets/dashboard.js?v=64"></script>
 </head>
 <body>
   <main class="dashboard-shell" id="dashboard">
@@ -138,6 +138,7 @@
         <div><span>Bezug bei Reserve</span><strong id="battery-empty-import">—</strong></div>
         <div><span>Verschiebepotenzial*</span><strong id="battery-shift-potential">—</strong></div>
       </div>
+      <div class="daily-pagination battery-pagination" aria-label="Batterietage blättern"><button id="battery-older" type="button" aria-label="Ältere sieben Batterietage">‹ <span>Ältere</span></button><button id="battery-period" type="button" title="Zu den aktuellen Batterietagen zurückkehren"><strong id="battery-range">—</strong><small id="battery-count">—</small></button><button id="battery-newer" type="button" aria-label="Neuere sieben Batterietage"><span>Neuere</span> ›</button><button id="battery-current" type="button" hidden>Heute</button></div>
       <div class="battery-table"><div class="battery-row battery-head"><span>Tag</span><span>Voll ab</span><span>Reserve ab</span><span>Zeit voll</span><span>Zeit Reserve</span><span>Geladen</span><span>Entladen</span></div><div id="battery-statistics"></div></div>
       <p class="analysis-note">* Konservativer Tagesindikator: kleinere Energiemenge aus Einspeisung bei voller Batterie und Netzbezug bei erreichter Reserve. Erst eine längere Datenreihe über verschiedene Jahreszeiten erlaubt eine belastbare Empfehlung für weitere 2,1 kWh.</p>
     </section>
@@ -233,6 +234,7 @@
         <article id="tasmota-device-state"><div><span>IR-Leser · Tasmota</span><strong id="tasmota-operating-state">—</strong></div><span class="device-state-badge" id="tasmota-state-badge">—</span><p id="tasmota-alarm-summary">Status wird gelesen</p><small id="tasmota-state-detail">—</small></article>
       </div>
       <div class="device-events"><div class="device-event-row device-event-head"><span>Zeitpunkt</span><span>Gerät</span><span>Ereignis</span><span>Messkontext</span></div><div id="device-event-list"><p class="empty-row">Ereignishistorie wird geladen</p></div></div>
+      <button class="load-more-events" id="device-events-more" type="button" hidden>Weitere Ereignisse laden</button>
       <p class="analysis-note">Alarmregister zeigen den jeweils beobachteten Gerätezustand, kein rückwirkendes Hersteller-Ereignisprotokoll. „Normal“ wird ebenfalls als Zustandswechsel gespeichert. Das Dashboard sendet keinerlei Steuerbefehle.</p>
     </section>
 

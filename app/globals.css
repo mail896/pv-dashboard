@@ -412,6 +412,8 @@ html[data-theme="dark"] .dashboard-tabs .all-sections-toggle { background:transp
 .device-event-row { display:grid; grid-template-columns:145px 130px minmax(220px,1fr) minmax(190px,.8fr); gap:12px; min-width:760px; padding:10px 4px; border-top:1px solid var(--line); color:var(--muted); font-size:10px; }
 .device-event-row span:nth-child(2) { color:var(--text); font-weight:650; }
 .device-event-head { border:0; color:var(--muted); font:650 8px ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.08em; text-transform:uppercase; }
+.load-more-events { display:block; margin:12px auto 0; padding:8px 13px; border:1px solid var(--line); border-radius:9px; color:var(--muted); background:var(--panel-2); cursor:pointer; font:inherit; }
+.load-more-events:hover { color:var(--text); }
 .source-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:1px; overflow:hidden; border:1px solid var(--line); border-radius:12px; background:var(--line); }
 .source-grid > div { display:grid; grid-template-columns:1fr auto; grid-template-rows:auto auto; align-items:center; padding:17px; background:#ffffff; }
 .source-grid strong { font-size:12px; }

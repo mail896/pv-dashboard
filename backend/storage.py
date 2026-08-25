@@ -283,14 +283,25 @@ class Storage:
             ).fetchall()
         return {"events": [{"timestamp": row["timestamp"], **json.loads(row["detail_json"])} for row in rows]}
 
-    def device_events(self, limit: int = 30) -> dict[str, Any]:
+    def device_events(self, limit: int = 30, before_id: int | None = None) -> dict[str, Any]:
         with self.connect() as connection:
             rows = connection.execute(
-                "SELECT source, timestamp, detail_json FROM source_events WHERE source IN ('solakon_status', 'ez1_status', 'shelly_status', 'tasmota_status') ORDER BY timestamp DESC LIMIT ?",
-                (limit,),
+                """
+                SELECT id, source, timestamp, detail_json FROM source_events
+                WHERE source IN ('solakon_status', 'ez1_status', 'shelly_status', 'tasmota_status')
+                  AND (? IS NULL OR id < ?)
+                ORDER BY id DESC LIMIT ?
+                """,
+                (before_id, before_id, limit + 1),
             ).fetchall()
         names = {"solakon_status": "Solakon ONE", "ez1_status": "APsystems EZ1", "shelly_status": "Shelly Pro 3EM", "tasmota_status": "IR-Leser"}
-        return {"events": [{"device": names[row["source"]], "timestamp": row["timestamp"], **json.loads(row["detail_json"])} for row in rows]}
+        has_more = len(rows) > limit
+        page = rows[:limit]
+        return {
+            "events": [{"id": row["id"], "device": names[row["source"]], "timestamp": row["timestamp"], **json.loads(row["detail_json"])} for row in page],
+            "has_more": has_more,
+            "next_before_id": page[-1]["id"] if has_more and page else None,
+        }
 
     def stats(self) -> dict[str, Any]:
         with self.connect() as connection:
@@ -675,7 +686,7 @@ class Storage:
             "meter_at_recording_start": meter_at_start,
         }
 
-    def battery_statistics(self, days: int = 31) -> dict[str, Any]:
+    def battery_statistics(self, days: int = 31, anchor: str | None = None) -> dict[str, Any]:
         """Describe usable battery limits and energy around them.
 
         The Solakon reserve is treated as operationally empty at 10 %; full is
@@ -684,18 +695,25 @@ class Storage:
         local_zone = ZoneInfo("Europe/Berlin")
         now_local = datetime.now(local_zone)
         day_count = max(1, days)
-        first_day = now_local.date() - timedelta(days=day_count - 1)
+        try:
+            requested_last_day = date.fromisoformat(anchor) if anchor else now_local.date()
+        except ValueError as error:
+            raise ValueError("Ungültiges Ankerdatum") from error
+        last_day = min(requested_last_day, now_local.date())
+        first_day = last_day - timedelta(days=day_count - 1)
         start_local = datetime.combine(first_day, datetime.min.time(), tzinfo=local_zone)
         start_utc = start_local.astimezone(timezone.utc)
+        end_utc = datetime.combine(last_day + timedelta(days=1), datetime.min.time(), tzinfo=local_zone).astimezone(timezone.utc)
         with self.connect() as connection:
+            bounds = connection.execute("SELECT MIN(timestamp) AS first FROM measurements").fetchone()
             rows = connection.execute(
                 """
                 SELECT timestamp, grid_w, battery_w, soc_percent
                 FROM measurements
-                WHERE timestamp >= ? AND soc_percent IS NOT NULL
+                WHERE timestamp >= ? AND timestamp < ? AND soc_percent IS NOT NULL
                 ORDER BY timestamp ASC
                 """,
-                (start_utc.isoformat(timespec="seconds"),),
+                (start_utc.isoformat(timespec="seconds"), end_utc.isoformat(timespec="seconds")),
             ).fetchall()
 
         daily: dict[str, dict[str, Any]] = {}
@@ -777,8 +795,12 @@ class Storage:
             min(day["export_while_full_kwh"], day["import_while_empty_kwh"])
             for day in observed
         )
+        first_recorded = datetime.fromisoformat(bounds["first"]).astimezone(local_zone).date() if bounds and bounds["first"] else None
         return {
             "timezone": "Europe/Berlin",
+            "anchor": last_day.isoformat(), "page_start": first_day.isoformat(), "page_end": last_day.isoformat(),
+            "today": now_local.date().isoformat(), "has_older": bool(first_recorded and first_day > first_recorded),
+            "has_newer": last_day < now_local.date(),
             "thresholds": {"full_percent": 99, "empty_percent": 10},
             "summary": {
                 "observed_days": len(observed),

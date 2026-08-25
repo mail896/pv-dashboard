@@ -14,6 +14,7 @@ flows, history, statistics, records, battery analytics and exports.
 - local Chart.js bundle without runtime CDN dependency
 - five-second measurement storage and calendar-aware energy integration
 - paginated daily statistics and weekly, monthly and annual solar analysis
+- paginated battery analysis and cursor-based loading of older device events
 - automatically invalidated SQLite cache for completed solar periods
 - compressed machine-readable raw-data export
 - systemd deployment example and ten backend/data tests

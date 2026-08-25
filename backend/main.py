@@ -255,8 +255,11 @@ def economics() -> dict[str, Any]:
 
 
 @app.get("/api/battery-statistics")
-def battery_statistics(days: int = Query(default=31, ge=1, le=3660)) -> dict[str, Any]:
-    return storage.battery_statistics(days)
+def battery_statistics(days: int = Query(default=31, ge=1, le=3660), anchor: str | None = Query(default=None)) -> dict[str, Any]:
+    try:
+        return storage.battery_statistics(days, anchor)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.get("/api/solar-profiles")
@@ -286,5 +289,5 @@ def solakon_events(limit: int = Query(default=20, ge=1, le=100)) -> dict[str, An
 
 
 @app.get("/api/events/devices")
-def device_events(limit: int = Query(default=30, ge=1, le=100)) -> dict[str, Any]:
-    return storage.device_events(limit)
+def device_events(limit: int = Query(default=30, ge=1, le=100), before_id: int | None = Query(default=None, ge=1)) -> dict[str, Any]:
+    return storage.device_events(limit, before_id)
