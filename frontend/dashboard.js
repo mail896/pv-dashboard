@@ -35,7 +35,8 @@
   const batteryQueryValue = new URLSearchParams(window.location.search).get("battery");
   let batteryAnchor = /^\d{4}-\d{2}-\d{2}$/.test(batteryQueryValue || "") ? batteryQueryValue : null;
   let batteryPage = { days: [] };
-  let deviceEventsCursor = null;
+  const deviceEventsPageValue = Number(new URLSearchParams(window.location.search).get("events_page"));
+  let deviceEventsPage = Number.isInteger(deviceEventsPageValue) && deviceEventsPageValue > 0 ? deviceEventsPageValue : 1;
   let dailyPage = { days: [] };
   const dailyQueryValue = new URLSearchParams(window.location.search).get("daily");
   let dailyAnchor = /^\d{4}-\d{2}-\d{2}$/.test(dailyQueryValue || "") ? dailyQueryValue : null;
@@ -711,19 +712,17 @@
     }
   }
 
-  async function loadDeviceEvents(append = false) {
+  async function loadDeviceEvents() {
     const container = $("device-event-list");
     if (!container) return;
-    const moreButton = $("device-events-more");
-    if (moreButton) moreButton.disabled = true;
     try {
-      const query = new URLSearchParams({ limit: "30" });
-      if (append && deviceEventsCursor) query.set("before_id", String(deviceEventsCursor));
+      const query = new URLSearchParams({ limit: "30", page: String(deviceEventsPage) });
       const response = await fetch(`api/events/devices?${query}`, { cache: "no-store" });
       if (!response.ok) throw new Error("Ereignisse nicht erreichbar");
       const payload = await response.json();
+      deviceEventsPage = Number(payload.page || 1);
       const events = Array.isArray(payload.events) ? payload.events : [];
-      if (!append) container.replaceChildren();
+      container.replaceChildren();
       if (!events.length) { empty(container, "Noch keine Statuswechsel aufgezeichnet"); return; }
       events.forEach((event) => {
         const alarms = Array.isArray(event.alarms) ? event.alarms : [];
@@ -743,12 +742,13 @@
         });
         container.append(row);
       });
-      deviceEventsCursor = payload.next_before_id || null;
-      if (moreButton) moreButton.hidden = !payload.has_more;
+      const newer = $("device-events-newer");
+      const older = $("device-events-older");
+      if (newer) newer.disabled = !payload.has_newer;
+      if (older) older.disabled = !payload.has_older;
+      text("device-events-page", `Seite ${payload.page} von ${payload.page_count} · ${payload.total} Ereignisse`);
     } catch {
-      if (!append) empty(container, "Ereignishistorie derzeit nicht erreichbar");
-    } finally {
-      if (moreButton) moreButton.disabled = false;
+      empty(container, "Ereignishistorie derzeit nicht erreichbar");
     }
   }
 
@@ -1507,10 +1507,13 @@
     const query = new URLSearchParams(window.location.search);
     const value = query.get("daily");
     const batteryValue = query.get("battery");
+    const eventsValue = Number(query.get("events_page"));
     dailyAnchor = /^\d{4}-\d{2}-\d{2}$/.test(value || "") ? value : null;
     batteryAnchor = /^\d{4}-\d{2}-\d{2}$/.test(batteryValue || "") ? batteryValue : null;
+    deviceEventsPage = Number.isInteger(eventsValue) && eventsValue > 0 ? eventsValue : 1;
     if (viewIncludes("overview") || viewIncludes("economics")) void loadStatistics();
     if (viewIncludes("history")) void loadBatteryStatistics();
+    if (viewIncludes("system")) void loadDeviceEvents();
   });
   $("energy-csv")?.addEventListener("click", (event) => {
     event.preventDefault();
@@ -1560,7 +1563,16 @@
     });
   });
   $("retry")?.addEventListener("click", () => void loadLive());
-  $("device-events-more")?.addEventListener("click", () => void loadDeviceEvents(true));
+  const setDeviceEventsPage = (page) => {
+    deviceEventsPage = Math.max(1, page);
+    const url = new URL(window.location.href);
+    if (deviceEventsPage > 1) url.searchParams.set("events_page", String(deviceEventsPage));
+    else url.searchParams.delete("events_page");
+    window.history.pushState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    void loadDeviceEvents();
+  };
+  $("device-events-newer")?.addEventListener("click", () => setDeviceEventsPage(deviceEventsPage - 1));
+  $("device-events-older")?.addEventListener("click", () => setDeviceEventsPage(deviceEventsPage + 1));
   const tariffSlider = $("tariff-slider");
   if (tariffSlider) tariffSlider.value = String(tariffCt);
   tariffSlider?.addEventListener("input", () => {

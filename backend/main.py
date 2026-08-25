@@ -289,5 +289,5 @@ def solakon_events(limit: int = Query(default=20, ge=1, le=100)) -> dict[str, An
 
 
 @app.get("/api/events/devices")
-def device_events(limit: int = Query(default=30, ge=1, le=100), before_id: int | None = Query(default=None, ge=1)) -> dict[str, Any]:
-    return storage.device_events(limit, before_id)
+def device_events(limit: int = Query(default=30, ge=1, le=100), page: int = Query(default=1, ge=1)) -> dict[str, Any]:
+    return storage.device_events(limit, page)

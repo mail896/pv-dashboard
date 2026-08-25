@@ -9,9 +9,9 @@
   <title>Schulzihausen PV | Wilhelm-Evers-Straße</title>
   <meta name="description" content="Lokales Live-Dashboard für Solakon ONE, APsystems EZ1, Shelly Pro 3EM und Tasmota IR-Zähler.">
   <script>try{document.documentElement.dataset.theme=localStorage.getItem("pv-theme")||"light"}catch(e){document.documentElement.dataset.theme="light"}</script>
-  <link rel="stylesheet" href="assets/dashboard.css?v=72">
+  <link rel="stylesheet" href="assets/dashboard.css?v=73">
   <script defer src="assets/chart.umd.min.js?v=4.5.1"></script>
-  <script defer src="assets/dashboard.js?v=64"></script>
+  <script defer src="assets/dashboard.js?v=65"></script>
 </head>
 <body>
   <main class="dashboard-shell" id="dashboard">
@@ -234,7 +234,7 @@
         <article id="tasmota-device-state"><div><span>IR-Leser · Tasmota</span><strong id="tasmota-operating-state">—</strong></div><span class="device-state-badge" id="tasmota-state-badge">—</span><p id="tasmota-alarm-summary">Status wird gelesen</p><small id="tasmota-state-detail">—</small></article>
       </div>
       <div class="device-events"><div class="device-event-row device-event-head"><span>Zeitpunkt</span><span>Gerät</span><span>Ereignis</span><span>Messkontext</span></div><div id="device-event-list"><p class="empty-row">Ereignishistorie wird geladen</p></div></div>
-      <button class="load-more-events" id="device-events-more" type="button" hidden>Weitere Ereignisse laden</button>
+      <div class="event-pagination"><button id="device-events-newer" type="button" aria-label="Neuere Ereignisse">‹ Neuere</button><strong id="device-events-page">Seite 1 von 1</strong><button id="device-events-older" type="button" aria-label="Ältere Ereignisse">Ältere ›</button></div>
       <p class="analysis-note">Alarmregister zeigen den jeweils beobachteten Gerätezustand, kein rückwirkendes Hersteller-Ereignisprotokoll. „Normal“ wird ebenfalls als Zustandswechsel gespeichert. Das Dashboard sendet keinerlei Steuerbefehle.</p>
     </section>
 

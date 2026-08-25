@@ -283,24 +283,26 @@ class Storage:
             ).fetchall()
         return {"events": [{"timestamp": row["timestamp"], **json.loads(row["detail_json"])} for row in rows]}
 
-    def device_events(self, limit: int = 30, before_id: int | None = None) -> dict[str, Any]:
+    def device_events(self, limit: int = 30, page: int = 1) -> dict[str, Any]:
         with self.connect() as connection:
+            total = connection.execute(
+                "SELECT COUNT(*) AS count FROM source_events WHERE source IN ('solakon_status', 'ez1_status', 'shelly_status', 'tasmota_status')"
+            ).fetchone()["count"]
+            page_count = max(1, (int(total) + limit - 1) // limit)
+            selected_page = min(max(1, page), page_count)
             rows = connection.execute(
                 """
                 SELECT id, source, timestamp, detail_json FROM source_events
                 WHERE source IN ('solakon_status', 'ez1_status', 'shelly_status', 'tasmota_status')
-                  AND (? IS NULL OR id < ?)
-                ORDER BY id DESC LIMIT ?
+                ORDER BY id DESC LIMIT ? OFFSET ?
                 """,
-                (before_id, before_id, limit + 1),
+                (limit, (selected_page - 1) * limit),
             ).fetchall()
         names = {"solakon_status": "Solakon ONE", "ez1_status": "APsystems EZ1", "shelly_status": "Shelly Pro 3EM", "tasmota_status": "IR-Leser"}
-        has_more = len(rows) > limit
-        page = rows[:limit]
         return {
-            "events": [{"id": row["id"], "device": names[row["source"]], "timestamp": row["timestamp"], **json.loads(row["detail_json"])} for row in page],
-            "has_more": has_more,
-            "next_before_id": page[-1]["id"] if has_more and page else None,
+            "events": [{"id": row["id"], "device": names[row["source"]], "timestamp": row["timestamp"], **json.loads(row["detail_json"])} for row in rows],
+            "page": selected_page, "page_count": page_count, "total": int(total),
+            "has_older": selected_page < page_count, "has_newer": selected_page > 1,
         }
 
     def stats(self) -> dict[str, Any]:

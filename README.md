@@ -15,7 +15,7 @@ interactive charts, calendar-aware statistics and protected data exports.
 - SQLite history in WAL mode, normally sampled every five seconds.
 - Interactive power charts and energy aggregation by day, week, month and year.
 - Paginated seven-day statistics with URL state and incomplete-day markers.
-- Paginated battery-day analysis and cursor-based loading of older device events.
+- Paginated battery-day analysis and URL-persisted 30-row device-event pages.
 - Weekly/monthly solar heatmaps and a compact annual yield view with monthly cards.
 - Automatically invalidated SQLite cache for completed solar periods; raw samples remain unchanged.
 - Battery state, charge/discharge energy, temperature and operating limits.
