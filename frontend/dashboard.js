@@ -27,6 +27,9 @@
   let highscoreTimer;
   let latestSnapshot = null;
   let latestStatistics = { days: [] };
+  let dailyPage = { days: [] };
+  const dailyQueryValue = new URLSearchParams(window.location.search).get("daily");
+  let dailyAnchor = /^\d{4}-\d{2}-\d{2}$/.test(dailyQueryValue || "") ? dailyQueryValue : null;
   let recordingEconomics = null;
   const root = document.documentElement;
   const DASHBOARD_TABS = ["overview", "history", "economics", "system", "info"];
@@ -730,10 +733,36 @@
     } catch { empty(container, "Ereignishistorie derzeit nicht erreichbar"); }
   }
 
-  function renderStatistics(payload) {
-    latestStatistics = payload;
+  const shiftIsoDate = (isoDate, offset) => {
+    const value = new Date(`${isoDate}T12:00:00`);
+    value.setDate(value.getDate() + offset);
+    return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+  };
+
+  const compactDateRange = (start, end) => {
+    if (!start || !end) return "—";
+    const first = new Date(`${start}T12:00:00`);
+    const last = new Date(`${end}T12:00:00`);
+    if (first.getFullYear() === last.getFullYear() && first.getMonth() === last.getMonth()) {
+      return `${first.getDate()}.–${last.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })}`;
+    }
+    return `${first.toLocaleDateString("de-DE")}–${last.toLocaleDateString("de-DE")}`;
+  };
+
+  function setDailyAnchor(anchor, push = true) {
+    dailyAnchor = anchor;
+    const url = new URL(window.location.href);
+    if (anchor) url.searchParams.set("daily", anchor);
+    else url.searchParams.delete("daily");
+    window.history[push ? "pushState" : "replaceState"]({}, "", `${url.pathname}${url.search}${url.hash}`);
+  }
+
+  function renderStatistics(payload, currentPayload = payload) {
+    dailyPage = payload;
+    latestStatistics = currentPayload;
     const days = Array.isArray(payload.days) ? payload.days : [];
-    const today = days[days.length - 1];
+    const currentDays = Array.isArray(currentPayload.days) ? currentPayload.days : [];
+    const today = currentDays[currentDays.length - 1];
     text("today-consumption", today ? energy(today.consumption_kwh) : "—");
     text("today-pv", today ? energy(today.pv_kwh) : "—");
     text("today-import", today ? energy(today.import_kwh) : "—");
@@ -744,10 +773,21 @@
     const container = $("daily-statistics");
     if (!container) return;
     container.replaceChildren();
+    const recordedOnPage = days.filter((day) => Number(day.coverage_hours || 0) > 0).length;
+    text("daily-range", compactDateRange(payload.page_start, payload.page_end));
+    text("daily-count", `${recordedOnPage} von ${Number(payload.total_recorded_days || 0).toLocaleString("de-DE")} aufgezeichneten Tagen`);
+    const older = $("daily-older");
+    const newer = $("daily-newer");
+    const todayButton = $("daily-today");
+    if (older) older.disabled = !payload.has_older;
+    if (newer) newer.disabled = !payload.has_newer;
+    if (todayButton) todayButton.hidden = !payload.has_newer;
     days.slice().reverse().forEach((day) => {
       if (Number(day.coverage_hours || 0) <= 0) return;
       const row = document.createElement("div");
       row.className = "daily-row";
+      const incomplete = day.date !== payload.today && Number(day.coverage_hours || 0) < 22.8;
+      row.classList.toggle("incomplete", incomplete);
       const date = new Date(`${day.date}T12:00:00`);
       const values = [
         date.toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" }),
@@ -759,7 +799,7 @@
         cell.textContent = value;
         row.append(cell);
       });
-      row.title = `${Number(day.coverage_hours).toLocaleString("de-DE")} h Messabdeckung`;
+      row.title = `${Number(day.coverage_hours).toLocaleString("de-DE")} h Messabdeckung${incomplete ? " · unvollständiger Tag" : ""}`;
       container.append(row);
     });
     renderEconomics();
@@ -767,9 +807,17 @@
 
   async function loadStatistics() {
     try {
-      const response = await fetch("api/statistics?days=7", { cache: "no-store" });
+      const query = new URLSearchParams({ days: "7" });
+      if (dailyAnchor) query.set("anchor", dailyAnchor);
+      const response = await fetch(`api/statistics?${query}`, { cache: "no-store" });
       if (!response.ok) throw new Error("Statistik nicht erreichbar");
-      renderStatistics(await response.json());
+      const payload = await response.json();
+      let currentPayload = payload;
+      if (payload.has_newer) {
+        const currentResponse = await fetch("api/statistics?days=1", { cache: "no-store" });
+        if (currentResponse.ok) currentPayload = await currentResponse.json();
+      }
+      renderStatistics(payload, currentPayload);
     } catch {
       renderStatistics({ days: [] });
     }
@@ -1253,6 +1301,29 @@
   });
   $("energy-previous")?.addEventListener("click", () => { shiftEnergyAnchor(-1); void loadEnergySeries(); });
   $("energy-next")?.addEventListener("click", () => { shiftEnergyAnchor(1); void loadEnergySeries(); });
+  $("daily-older")?.addEventListener("click", () => {
+    if (!dailyPage.page_start || !dailyPage.has_older) return;
+    setDailyAnchor(shiftIsoDate(dailyPage.page_start, -1));
+    void loadStatistics();
+  });
+  $("daily-newer")?.addEventListener("click", () => {
+    if (!dailyPage.page_end || !dailyPage.has_newer) return;
+    const nextAnchor = shiftIsoDate(dailyPage.page_end, 7);
+    setDailyAnchor(nextAnchor >= dailyPage.today ? null : nextAnchor);
+    void loadStatistics();
+  });
+  const showCurrentDailyPage = () => {
+    if (!dailyPage.has_newer && !dailyAnchor) return;
+    setDailyAnchor(null);
+    void loadStatistics();
+  };
+  $("daily-period")?.addEventListener("click", showCurrentDailyPage);
+  $("daily-today")?.addEventListener("click", showCurrentDailyPage);
+  window.addEventListener("popstate", () => {
+    const value = new URLSearchParams(window.location.search).get("daily");
+    dailyAnchor = /^\d{4}-\d{2}-\d{2}$/.test(value || "") ? value : null;
+    if (viewIncludes("overview") || viewIncludes("economics")) void loadStatistics();
+  });
   $("energy-csv")?.addEventListener("click", (event) => {
     event.preventDefault();
     const csv = $("energy-csv");

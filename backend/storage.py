@@ -312,7 +312,7 @@ class Storage:
             "points": points,
         }
 
-    def daily_statistics(self, days: int = 7) -> dict[str, Any]:
+    def daily_statistics(self, days: int = 7, anchor: str | None = None) -> dict[str, Any]:
         """Integrate power samples into local calendar-day energy totals.
 
         Intervals longer than 30 seconds are discarded so collector downtime is
@@ -320,18 +320,35 @@ class Storage:
         """
         local_zone = ZoneInfo("Europe/Berlin")
         now_local = datetime.now(local_zone)
-        first_day = now_local.date() - timedelta(days=max(1, days) - 1)
+        try:
+            requested_last_day = date.fromisoformat(anchor) if anchor else now_local.date()
+        except ValueError as error:
+            raise ValueError("Ungültiges Ankerdatum") from error
+        last_day = min(requested_last_day, now_local.date())
+        first_day = last_day - timedelta(days=max(1, days) - 1)
         start_local = datetime.combine(first_day, datetime.min.time(), tzinfo=local_zone)
         start_utc = start_local.astimezone(timezone.utc)
         with self.connect() as connection:
+            bounds = connection.execute(
+                """
+                SELECT MIN(timestamp) AS first,
+                       MAX(timestamp) AS latest,
+                       COUNT(DISTINCT substr(timestamp, 1, 10)) AS recorded_days
+                FROM measurements
+                """
+            ).fetchone()
             rows = connection.execute(
                 """
                 SELECT timestamp, pv_total_w, house_w, grid_w, battery_w
                 FROM measurements
-                WHERE timestamp >= ?
+                WHERE timestamp >= ? AND timestamp < ?
                 ORDER BY timestamp ASC
                 """,
-                (start_utc.isoformat(timespec="seconds"),),
+                (
+                    start_utc.isoformat(timespec="seconds"),
+                    datetime.combine(last_day + timedelta(days=1), datetime.min.time(), tzinfo=local_zone)
+                    .astimezone(timezone.utc).isoformat(timespec="seconds"),
+                ),
             ).fetchall()
 
         totals: dict[str, dict[str, float]] = {}
@@ -398,7 +415,22 @@ class Storage:
                 **{key: round(value, 3) for key, value in values.items()},
                 "coverage_hours": round(covered_seconds.get(day, 0.0) / 3600.0, 2),
             })
-        return {"timezone": "Europe/Berlin", "days": result}
+        first_recorded = None
+        if bounds and bounds["first"]:
+            first_recorded = datetime.fromisoformat(bounds["first"]).astimezone(local_zone).date()
+        total_recorded_days = int(bounds["recorded_days"] or 0) if bounds else 0
+        return {
+            "timezone": "Europe/Berlin",
+            "days": result,
+            "anchor": last_day.isoformat(),
+            "page_start": first_day.isoformat(),
+            "page_end": last_day.isoformat(),
+            "today": now_local.date().isoformat(),
+            "first_recorded_date": first_recorded.isoformat() if first_recorded else None,
+            "total_recorded_days": total_recorded_days,
+            "has_older": bool(first_recorded and first_day > first_recorded),
+            "has_newer": last_day < now_local.date(),
+        }
 
     def energy_series(self, period: str = "month", anchor: str | None = None) -> dict[str, Any]:
         """Return calendar-aware energy buckets calculated on the server.

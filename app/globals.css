@@ -136,6 +136,15 @@ html[data-theme="dark"] .dashboard-tabs .all-sections-toggle { background:transp
 .daily-row { display:grid; grid-template-columns:1.15fr repeat(6,1fr); gap:12px; min-width:780px; padding:10px 4px; border-top:1px solid var(--line); color:var(--muted); font-size:10px; }
 .daily-row span:not(:first-child) { text-align:right; font-variant-numeric:tabular-nums; }
 .daily-row strong { color:var(--text); }
+.daily-row.incomplete strong:first-child::after { content:"•"; margin-left:5px; color:var(--sun); font-size:13px; }
+.daily-pagination { display:flex; align-items:stretch; justify-content:flex-end; gap:6px; margin-top:14px; }
+.daily-pagination button { min-height:38px; padding:7px 11px; border:1px solid var(--line); border-radius:9px; color:var(--muted); background:var(--panel-2); font:inherit; cursor:pointer; }
+.daily-pagination button:hover:not(:disabled) { color:var(--text); border-color:color-mix(in srgb,var(--green) 35%,var(--line)); }
+.daily-pagination button:disabled { opacity:.38; cursor:default; }
+.daily-pagination #daily-period { display:grid; min-width:180px; place-content:center; padding:5px 13px; text-align:center; }
+.daily-pagination #daily-period strong { color:var(--text); font-size:11px; }
+.daily-pagination #daily-period small { margin-top:2px; color:var(--muted); font-size:8.5px; }
+.daily-pagination #daily-today { color:var(--green); font-weight:700; }
 .daily-head { border:0; padding-top:2px; font:650 8px ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.08em; text-transform:uppercase; }
 .battery-analysis { margin-top:10px; padding:18px 20px; border-radius:14px; border-color:rgba(22,132,95,.22); }
 .battery-summary { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:1px; margin-top:14px; overflow:hidden; border:1px solid var(--line); border-radius:11px; background:var(--line); }
@@ -588,6 +597,12 @@ html[data-theme="dark"] .status-pill.offline { background:rgba(237,120,108,.08);
   .dashboard-tabs .all-sections-toggle #all-sections-label { display:none; }
   [data-dashboard-section] { scroll-margin-top:62px; }
   .today-grid { grid-template-columns:repeat(2,1fr); background:transparent; }
+  .daily-pagination { display:grid; grid-template-columns:36px minmax(0,1fr) 36px 52px; width:100%; gap:4px; }
+  .daily-pagination button { min-width:0; padding:6px 4px; }
+  .daily-pagination button > span { display:none; }
+  .daily-pagination #daily-period { min-width:0; padding:5px 4px; }
+  .daily-pagination #daily-period strong { font-size:10px; }
+  .daily-pagination #daily-period small { overflow:hidden; font-size:7.5px; text-overflow:ellipsis; white-space:nowrap; }
   .temperature-summary { grid-template-columns:1fr; }
   .temperature-threshold-note { width:100%; margin-left:0; }
   .tariff-control { grid-template-columns:1fr; gap:10px; }

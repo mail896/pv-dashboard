@@ -139,7 +139,7 @@ def energy_series_csv(period: str = Query(default="month"), anchor: str | None =
     writer = csv.DictWriter(stream, fieldnames=columns, extrasaction="ignore")
     writer.writeheader()
     writer.writerows(payload["points"])
-    filename = f"pv-dashboard-energy-{period}-{payload['anchor']}.csv"
+    filename = f"schulzihausen-energie-{period}-{payload['anchor']}.csv"
     return Response(stream.getvalue(), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
@@ -192,7 +192,7 @@ def raw_data_csv_zip(
     temporary = tempfile.NamedTemporaryFile(prefix="pv-raw-export-", suffix=".zip", delete=False)
     archive_path = Path(temporary.name)
     temporary.close()
-    csv_name = f"pv-dashboard-raw-{start_date}-{end_date}-{resolution}.csv"
+    csv_name = f"schulzihausen-rohdaten-{start_date}-{end_date}-{resolution}.csv"
     try:
         with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
             with archive.open(csv_name, "w") as binary:
@@ -227,7 +227,7 @@ def raw_data_csv_zip(
     return FileResponse(
         archive_path,
         media_type="application/zip",
-        filename=f"pv-dashboard-raw-{start_date}-{end_date}-{resolution}.zip",
+        filename=f"schulzihausen-rohdaten-{start_date}-{end_date}-{resolution}.zip",
         background=BackgroundTask(os.unlink, archive_path),
         headers={"Cache-Control": "private, no-store"},
     )
@@ -239,8 +239,14 @@ def highscores() -> dict[str, Any]:
 
 
 @app.get("/api/statistics")
-def statistics(days: int = Query(default=7, ge=1, le=31)) -> dict[str, Any]:
-    return storage.daily_statistics(days)
+def statistics(
+    days: int = Query(default=7, ge=1, le=31),
+    anchor: str | None = Query(default=None),
+) -> dict[str, Any]:
+    try:
+        return storage.daily_statistics(days, anchor)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.get("/api/economics")
