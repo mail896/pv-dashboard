@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+"""Bound long-term PV storage growth without discarding numeric samples."""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+PROJECT = Path("/opt/pv-dashboard")
+if str(PROJECT) not in sys.path:
+    sys.path.insert(0, str(PROJECT))
+
+from backend.storage import Storage  # noqa: E402
+
+
+def main() -> None:
+    database = PROJECT / "data" / "energy.sqlite3"
+    if not database.is_file() or database.is_symlink():
+        raise SystemExit(f"Unexpected PV database target: {database}")
+    result = Storage(database).compact_redundant_json(retention_days=90)
+    print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
+
+
+if __name__ == "__main__":
+    main()

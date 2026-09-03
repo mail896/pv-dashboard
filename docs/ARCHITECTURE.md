@@ -6,7 +6,7 @@
 |---|---|---|
 | Geräte | Modbus TCP, lokale HTTP/RPC-APIs | Messwerte lesen |
 | Backend | Python, FastAPI, Uvicorn | parallele Sammlung, Normalisierung, API |
-| Speicherung | SQLite im WAL-Modus | Rohmessungen und Statusereignisse |
+| Speicherung | SQLite im WAL-Modus | numerische 5-Sekunden-Messungen und Statusereignisse |
 | Frontend | HTML, CSS, Vanilla JavaScript | responsive Darstellung und Interaktion |
 | Diagramme | Chart.js 4.5.1 lokal | Linien-, Balken- und Batteriediagramme |
 | Betrieb | systemd, optional Nginx | Prozessüberwachung und HTTPS |
@@ -17,6 +17,15 @@ Alle Quellen werden parallel gelesen, damit ein langsames Gerät nicht die
 anderen blockiert. Der Standardzyklus beträgt fünf Sekunden. Der EZ1-Ausgang
 wird höchstens alle zehn Sekunden abgefragt; Status und Alarme nur alle fünf
 Minuten. Ein gültiger Wert darf kurze HTTP-Aussetzer bis 45 Sekunden überbrücken.
+
+## Langzeitdatenhaltung
+
+Die numerischen Messspalten bleiben dauerhaft in der ursprünglichen
+5-Sekunden-Auflösung erhalten. `pv-storage-maintenance.timer` entfernt täglich nur
+den redundanten vollständigen JSON-Snapshot aus Datensätzen, die älter als 90 Tage
+sind. Der Dienst läuft mit niedriger I/O-Priorität sowie CPU- und RAM-Limit. Der
+Vorgang ist transaktional und wiederholbar; bei einem Fehler übernimmt SQLite keine
+Teiländerung.
 
 ## Energiebilanz
 

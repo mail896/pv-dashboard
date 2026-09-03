@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily PV database growth maintenance
+
+[Timer]
+OnCalendar=*-*-* 02:40:00 Europe/Berlin
+Persistent=true
+RandomizedDelaySec=10min
+AccuracySec=1min
+Unit=pv-storage-maintenance.service
+
+[Install]
+WantedBy=timers.target

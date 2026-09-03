@@ -12,7 +12,8 @@ flows, history, statistics, records, battery analytics and exports.
 - FastAPI/Uvicorn backend and concurrent local collectors
 - vanilla HTML, CSS and JavaScript frontend
 - local Chart.js bundle without runtime CDN dependency
-- five-second measurement storage and calendar-aware energy integration
+- permanent numeric five-second storage and calendar-aware energy integration
+- 90-day retention for redundant full JSON snapshots, maintained by a bounded systemd job
 - paginated daily statistics and weekly, monthly and annual solar analysis
 - paginated battery analysis and URL-persisted 30-row device-event pages
 - automatically invalidated SQLite cache for completed solar periods

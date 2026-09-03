@@ -94,6 +94,15 @@ class Storage:
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS storage_metadata (
+                    key TEXT PRIMARY KEY,
+                    value_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
             event_count = connection.execute(
                 "SELECT COUNT(*) AS count FROM source_events WHERE source = 'ez1'"
             ).fetchone()["count"]
@@ -113,6 +122,76 @@ class Storage:
                         )
                         previous_state = state
             connection.execute("PRAGMA optimize")
+
+    @staticmethod
+    def _meter_origin_from_snapshot(snapshot: dict[str, Any]) -> dict[str, Any] | None:
+        tasmota = snapshot.get("sources", {}).get("tasmota", {})
+        imported = tasmota.get("import_energy_kwh")
+        exported = tasmota.get("export_energy_kwh")
+        if imported is None and exported is None:
+            return None
+        return {"import_kwh": imported, "export_kwh": exported}
+
+    def _preserve_recording_origin(self, connection: sqlite3.Connection) -> dict[str, Any]:
+        row = connection.execute(
+            "SELECT value_json FROM storage_metadata WHERE key = 'meter_at_recording_start'"
+        ).fetchone()
+        if row:
+            return json.loads(row["value_json"])
+        origin = {"import_kwh": None, "export_kwh": None}
+        rows = connection.execute(
+            "SELECT snapshot_json FROM measurements WHERE snapshot_json <> '{}' ORDER BY id ASC"
+        )
+        for candidate in rows:
+            try:
+                found = self._meter_origin_from_snapshot(json.loads(candidate["snapshot_json"]))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            if found is not None:
+                origin = found
+                break
+        connection.execute(
+            """
+            INSERT INTO storage_metadata(key, value_json, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO NOTHING
+            """,
+            (
+                "meter_at_recording_start",
+                json.dumps(origin, separators=(",", ":")),
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        return origin
+
+    def compact_redundant_json(
+        self, retention_days: int = 90, now: datetime | None = None
+    ) -> dict[str, Any]:
+        """Remove redundant full snapshots after retaining their numeric samples."""
+        days = max(30, int(retention_days))
+        reference = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        cutoff = reference - timedelta(days=days)
+        cutoff_text = cutoff.isoformat(timespec="seconds")
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            origin = self._preserve_recording_origin(connection)
+            before = connection.execute(
+                """
+                SELECT COUNT(*) AS rows, COALESCE(SUM(length(snapshot_json)), 0) AS bytes
+                FROM measurements WHERE timestamp < ? AND snapshot_json <> '{}'
+                """,
+                (cutoff_text,),
+            ).fetchone()
+            connection.execute(
+                "UPDATE measurements SET snapshot_json = '{}' WHERE timestamp < ? AND snapshot_json <> '{}'",
+                (cutoff_text,),
+            )
+        return {
+            "retention_days": days, "cutoff": cutoff_text,
+            "compacted_rows": int(before["rows"] or 0),
+            "released_payload_bytes": int(before["bytes"] or 0) - int(before["rows"] or 0) * 2,
+            "numeric_samples_preserved": True,
+            "meter_at_recording_start": origin,
+        }
 
     def _measurement_fingerprint(self, start_utc: datetime, end_utc: datetime) -> str:
         with self.connect() as connection:
@@ -312,6 +391,9 @@ class Storage:
             row = connection.execute(
                 "SELECT COUNT(*) AS count, MIN(timestamp) AS first, MAX(timestamp) AS latest FROM measurements"
             ).fetchone()
+            compacted = connection.execute(
+                "SELECT COUNT(*) AS count FROM measurements WHERE snapshot_json = '{}'"
+            ).fetchone()["count"]
         related_files = (
             self.path,
             self.path.with_name(f"{self.path.name}-wal"),
@@ -325,6 +407,8 @@ class Storage:
             "latest_timestamp": row["latest"],
             "database_bytes": database_bytes,
             "disk_free_bytes": disk.free,
+            "compacted_snapshots": int(compacted or 0),
+            "json_retention_days": 90,
         }
 
     def history(self, range_name: str) -> dict[str, Any]:
@@ -671,16 +755,8 @@ class Storage:
             previous_time = current_time
 
         avoided_import = max(totals["consumption_kwh"] - totals["import_kwh"], 0.0)
-        meter_at_start = {"import_kwh": None, "export_kwh": None}
-        for row in rows:
-            sources = json.loads(row["snapshot_json"]).get("sources", {})
-            tasmota = sources.get("tasmota", {})
-            if tasmota.get("import_energy_kwh") is not None or tasmota.get("export_energy_kwh") is not None:
-                meter_at_start = {
-                    "import_kwh": tasmota.get("import_energy_kwh"),
-                    "export_kwh": tasmota.get("export_energy_kwh"),
-                }
-                break
+        with self.connect() as connection:
+            meter_at_start = self._preserve_recording_origin(connection)
         return {
             **{key: round(value, 3) for key, value in totals.items()},
             "avoided_import_kwh": round(avoided_import, 3),

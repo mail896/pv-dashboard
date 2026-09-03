@@ -170,6 +170,54 @@ class CollectorTests(unittest.TestCase):
         self.assertAlmostEqual(totals["coverage_hours"], 10 / 3600, places=2)
         self.assertEqual(totals["meter_at_recording_start"], {"import_kwh": None, "export_kwh": None})
 
+    def test_compaction_preserves_numeric_samples_and_meter_origin(self) -> None:
+        old = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+        recent = datetime(2026, 4, 9, 12, 0, tzinfo=timezone.utc)
+
+        def snapshot(at: datetime, meter_kwh: float) -> dict:
+            return {
+                "timestamp": at.isoformat(),
+                "pv": {"total_w": 500.0, "solakon_one_w": 400.0, "ez1_east_w": 100.0},
+                "house": {"consumption_w": 600.0}, "grid": {"power_w": 100.0},
+                "battery": {"power_w": 0.0, "soc_percent": 50.0},
+                "sources": {"tasmota": {"import_energy_kwh": meter_kwh, "export_energy_kwh": 12.0}},
+                "autarky_percent": 83.3, "quality": "complete",
+            }
+
+        with tempfile.TemporaryDirectory() as directory:
+            storage = Storage(Path(directory) / "energy.sqlite3")
+            storage.insert(snapshot(old, 1000.0))
+            storage.insert(snapshot(old + timedelta(seconds=5), 1000.1))
+            storage.insert(snapshot(recent, 1100.0))
+            result = storage.compact_redundant_json(90, now=datetime(2026, 4, 10, tzinfo=timezone.utc))
+            repeated = storage.compact_redundant_json(90, now=datetime(2026, 4, 10, tzinfo=timezone.utc))
+            with storage.connect() as connection:
+                rows = connection.execute(
+                    """
+                    SELECT timestamp, pv_total_w, pv_solakon_w, pv_ez1_w,
+                           house_w, grid_w, battery_w, soc_percent,
+                           autarky_percent, quality, snapshot_json
+                    FROM measurements ORDER BY id
+                    """
+                ).fetchall()
+            totals = storage.economics_totals()
+
+        self.assertEqual(result["compacted_rows"], 2)
+        self.assertEqual(repeated["compacted_rows"], 0)
+        self.assertGreater(result["released_payload_bytes"], 0)
+        self.assertEqual(rows[0]["snapshot_json"], "{}")
+        self.assertEqual(rows[0]["pv_total_w"], 500.0)
+        self.assertEqual(rows[0]["pv_solakon_w"], 400.0)
+        self.assertEqual(rows[0]["pv_ez1_w"], 100.0)
+        self.assertEqual(rows[0]["house_w"], 600.0)
+        self.assertEqual(rows[0]["grid_w"], 100.0)
+        self.assertEqual(rows[0]["battery_w"], 0.0)
+        self.assertEqual(rows[0]["soc_percent"], 50.0)
+        self.assertEqual(rows[0]["autarky_percent"], 83.3)
+        self.assertEqual(rows[0]["quality"], "complete")
+        self.assertNotEqual(rows[2]["snapshot_json"], "{}")
+        self.assertEqual(totals["meter_at_recording_start"], {"import_kwh": 1000.0, "export_kwh": 12.0})
+
     def test_solar_profiles_detects_orientation_crossover(self) -> None:
         now = datetime.now(timezone.utc).replace(microsecond=0)
 

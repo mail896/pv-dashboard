@@ -45,6 +45,9 @@ bewusst deployment-spezifisch.
 ## Betrieb
 
 - SQLite-Datei, `-wal` und `-shm` gemeinsam sichern.
+- Für langfristigen Betrieb `deploy/pv-storage-maintenance` installieren und
+  `pv-storage-maintenance.timer` aktivieren. Er bewahrt alle numerischen
+  5-Sekunden-Werte und entfernt nach 90 Tagen nur redundante JSON-Snapshots.
 - `/health` und Aktualität des letzten Messpunkts überwachen.
 - Messlücken nicht durch künstliche Werte auffüllen.
 - Gerätezugriffe read-only halten.

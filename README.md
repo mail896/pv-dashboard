@@ -17,7 +17,8 @@ interactive charts, calendar-aware statistics and protected data exports.
 - Paginated seven-day statistics with URL state and incomplete-day markers.
 - Paginated battery-day analysis and URL-persisted 30-row device-event pages.
 - Weekly/monthly solar heatmaps and a compact annual yield view with monthly cards.
-- Automatically invalidated SQLite cache for completed solar periods; raw samples remain unchanged.
+- Automatically invalidated SQLite cache for completed solar periods.
+- Permanent numeric five-second history; redundant full JSON snapshots are retained for 90 days.
 - Battery state, charge/discharge energy, temperature and operating limits.
 - Daily and instantaneous records with measurement-coverage checks.
 - Calendar CSV plus ZIP-compressed raw export at 5 s, 1 min or 15 min resolution.
@@ -88,8 +89,9 @@ the production-specific PAM/TOTP configuration is intentionally not shipped.
 .venv/bin/python -m unittest discover -s tests-python -v
 ```
 
-The repository includes ten data and collector tests covering normalization,
-calendar aggregation, gaps, battery statistics, derived-cache invalidation, records and storage round trips.
+The repository includes eleven data and collector tests covering normalization,
+calendar aggregation, gaps, battery statistics, derived-cache invalidation,
+records, storage round trips and lossless numeric compaction.
 
 ## License
 
