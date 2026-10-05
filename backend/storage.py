@@ -465,30 +465,54 @@ class Storage:
             raise ValueError("Ungültiges Ankerdatum") from error
         last_day = min(requested_last_day, now_local.date())
         first_day = last_day - timedelta(days=max(1, days) - 1)
-        start_local = datetime.combine(first_day, datetime.min.time(), tzinfo=local_zone)
-        start_utc = start_local.astimezone(timezone.utc)
+        requested_days = [first_day + timedelta(days=offset) for offset in range(max(1, days))]
+        cached_days: dict[str, dict[str, Any]] = {}
+        cache_fingerprints: dict[str, str] = {}
+        missing_days: list[date] = []
+        for requested_day in requested_days:
+            day_key = requested_day.isoformat()
+            if requested_day < now_local.date():
+                day_start = datetime.combine(requested_day, datetime.min.time(), tzinfo=local_zone).astimezone(timezone.utc)
+                day_end = datetime.combine(requested_day + timedelta(days=1), datetime.min.time(), tzinfo=local_zone).astimezone(timezone.utc)
+                fingerprint = self._measurement_fingerprint(day_start, day_end)
+                cache_fingerprints[day_key] = fingerprint
+                cached = self._cache_get(f"daily-statistics-v1:{day_key}", fingerprint)
+                if cached is not None:
+                    cached_days[day_key] = cached
+                    continue
+            missing_days.append(requested_day)
+
+        bounds_runtime = self._runtime_cache.get("daily-statistics-bounds-v1")
+        bounds: dict[str, Any]
+        if bounds_runtime and time.monotonic() - bounds_runtime[0] < 300:
+            bounds = bounds_runtime[1]
+        else:
+            with self.connect() as connection:
+                bounds_row = connection.execute(
+                    """
+                    SELECT MIN(timestamp) AS first,
+                           MAX(timestamp) AS latest,
+                           COUNT(DISTINCT substr(timestamp, 1, 10)) AS recorded_days
+                    FROM measurements
+                    """
+                ).fetchone()
+            bounds = dict(bounds_row) if bounds_row else {"first": None, "latest": None, "recorded_days": 0}
+            self._runtime_cache["daily-statistics-bounds-v1"] = (time.monotonic(), bounds)
+
+        rows: list[sqlite3.Row] = []
         with self.connect() as connection:
-            bounds = connection.execute(
-                """
-                SELECT MIN(timestamp) AS first,
-                       MAX(timestamp) AS latest,
-                       COUNT(DISTINCT substr(timestamp, 1, 10)) AS recorded_days
-                FROM measurements
-                """
-            ).fetchone()
-            rows = connection.execute(
-                """
-                SELECT timestamp, pv_total_w, house_w, grid_w, battery_w
-                FROM measurements
-                WHERE timestamp >= ? AND timestamp < ?
-                ORDER BY timestamp ASC
-                """,
-                (
-                    start_utc.isoformat(timespec="seconds"),
-                    datetime.combine(last_day + timedelta(days=1), datetime.min.time(), tzinfo=local_zone)
-                    .astimezone(timezone.utc).isoformat(timespec="seconds"),
-                ),
-            ).fetchall()
+            for missing_day in missing_days:
+                day_start = datetime.combine(missing_day, datetime.min.time(), tzinfo=local_zone).astimezone(timezone.utc)
+                day_end = datetime.combine(missing_day + timedelta(days=1), datetime.min.time(), tzinfo=local_zone).astimezone(timezone.utc)
+                rows.extend(connection.execute(
+                    """
+                    SELECT timestamp, pv_total_w, house_w, grid_w, battery_w
+                    FROM measurements
+                    WHERE timestamp >= ? AND timestamp < ?
+                    ORDER BY timestamp ASC
+                    """,
+                    (day_start.isoformat(timespec="seconds"), day_end.isoformat(timespec="seconds")),
+                ).fetchall())
 
         totals: dict[str, dict[str, float]] = {}
         covered_seconds: dict[str, float] = {}
@@ -530,6 +554,9 @@ class Storage:
         result = []
         for offset in range(max(1, days)):
             day = (first_day + timedelta(days=offset)).isoformat()
+            if day in cached_days:
+                result.append(cached_days[day])
+                continue
             values = totals.get(day, {
                 "consumption_kwh": 0.0, "pv_kwh": 0.0, "import_kwh": 0.0,
                 "export_kwh": 0.0, "battery_charge_kwh": 0.0,
@@ -549,11 +576,14 @@ class Storage:
                 values["base_load_w"] = samples[percentile_index]
             else:
                 values["base_load_w"] = 0.0
-            result.append({
+            daily_result = {
                 "date": day,
                 **{key: round(value, 3) for key, value in values.items()},
                 "coverage_hours": round(covered_seconds.get(day, 0.0) / 3600.0, 2),
-            })
+            }
+            result.append(daily_result)
+            if day in cache_fingerprints:
+                self._cache_set(f"daily-statistics-v1:{day}", cache_fingerprints[day], daily_result)
         first_recorded = None
         if bounds and bounds["first"]:
             first_recorded = datetime.fromisoformat(bounds["first"]).astimezone(local_zone).date()

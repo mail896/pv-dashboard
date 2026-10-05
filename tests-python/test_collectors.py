@@ -68,8 +68,9 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(snapshot["quality"], "partial")
 
     def test_storage_round_trip_and_history(self) -> None:
+        recorded_at = datetime.now(timezone.utc).replace(microsecond=0)
         snapshot = {
-            "timestamp": "2026-08-09T20:00:00+00:00",
+            "timestamp": recorded_at.isoformat(),
             "pv": {"total_w": 100.0, "solakon_one_w": 80.0, "ez1_east_w": 20.0},
             "house": {"consumption_w": 120.0},
             "grid": {"power_w": 20.0},
@@ -142,6 +143,35 @@ class CollectorTests(unittest.TestCase):
         self.assertIsNotNone(stats["days"][0]["full_at"])
         self.assertIsNotNone(stats["days"][0]["empty_at"])
         self.assertGreater(stats["days"][0]["import_while_empty_kwh"], 0)
+
+    def test_closed_daily_statistics_cache_is_reused_and_invalidated(self) -> None:
+        previous_day = datetime.now(timezone.utc).replace(hour=12, minute=0, second=0, microsecond=0) - timedelta(days=1)
+
+        def snapshot(at: datetime, watts: float) -> dict:
+            return {
+                "timestamp": at.isoformat(),
+                "pv": {"total_w": watts, "solakon_one_w": watts, "ez1_east_w": 0.0},
+                "house": {"consumption_w": watts}, "grid": {"power_w": 0.0},
+                "battery": {"power_w": 0.0, "soc_percent": 50.0},
+                "autarky_percent": 100.0, "quality": "complete",
+            }
+
+        with tempfile.TemporaryDirectory() as directory:
+            storage = Storage(Path(directory) / "energy.sqlite3")
+            storage.insert(snapshot(previous_day, 1000.0))
+            storage.insert(snapshot(previous_day + timedelta(seconds=10), 1000.0))
+            first = storage.daily_statistics(1, previous_day.date().isoformat())
+            second = storage.daily_statistics(1, previous_day.date().isoformat())
+            with storage.connect() as connection:
+                cache_rows = connection.execute(
+                    "SELECT COUNT(*) FROM derived_cache WHERE cache_key LIKE 'daily-statistics-v1:%'"
+                ).fetchone()[0]
+            storage.insert(snapshot(previous_day + timedelta(seconds=20), 1000.0))
+            third = storage.daily_statistics(1, previous_day.date().isoformat())
+
+        self.assertEqual(cache_rows, 1)
+        self.assertEqual(first["days"], second["days"])
+        self.assertGreater(third["days"][0]["consumption_kwh"], first["days"][0]["consumption_kwh"])
 
     def test_economics_totals_integrates_measured_flows_and_skips_gaps(self) -> None:
         start = datetime.now(timezone.utc).replace(microsecond=0)

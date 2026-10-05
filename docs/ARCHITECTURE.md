@@ -27,6 +27,11 @@ sind. Der Dienst läuft mit niedriger I/O-Priorität sowie CPU- und RAM-Limit. D
 Vorgang ist transaktional und wiederholbar; bei einem Fehler übernimmt SQLite keine
 Teiländerung.
 
+Abgeschlossene Tagesstatistiken werden ebenfalls im automatisch invalidierten
+`derived_cache` abgelegt. Der aktuelle Tag wird weiterhin aus den laufenden
+5-Sekunden-Werten berechnet. So bleibt die Übersicht bei wachsender Historie schnell,
+ohne Tageswerte einzufrieren oder Messdaten zu verändern.
+
 ## Energiebilanz
 
 Die Hauslast wird AC-seitig berechnet:

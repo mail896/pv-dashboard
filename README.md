@@ -89,7 +89,7 @@ the production-specific PAM/TOTP configuration is intentionally not shipped.
 .venv/bin/python -m unittest discover -s tests-python -v
 ```
 
-The repository includes eleven data and collector tests covering normalization,
+The repository includes twelve data and collector tests covering normalization,
 calendar aggregation, gaps, battery statistics, derived-cache invalidation,
 records, storage round trips and lossless numeric compaction.
 
