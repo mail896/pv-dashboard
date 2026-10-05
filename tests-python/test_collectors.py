@@ -164,7 +164,7 @@ class CollectorTests(unittest.TestCase):
             second = storage.daily_statistics(1, previous_day.date().isoformat())
             with storage.connect() as connection:
                 cache_rows = connection.execute(
-                    "SELECT COUNT(*) FROM derived_cache WHERE cache_key LIKE 'daily-statistics-v1:%'"
+                    "SELECT COUNT(*) FROM derived_cache WHERE cache_key LIKE 'daily-statistics-v3:%'"
                 ).fetchone()[0]
             storage.insert(snapshot(previous_day + timedelta(seconds=20), 1000.0))
             third = storage.daily_statistics(1, previous_day.date().isoformat())
@@ -328,6 +328,50 @@ class CollectorTests(unittest.TestCase):
         self.assertAlmostEqual(point["pv_total_kwh"], 10 / 3600, places=4)
         self.assertAlmostEqual(point["import_kwh"], 2 / 3600, places=4)
         self.assertAlmostEqual(point["battery_charge_kwh"], 1 / 3600, places=4)
+
+    def test_year_series_reuses_daily_aggregates(self) -> None:
+        recorded = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(days=1)
+
+        def snapshot(at: datetime) -> dict:
+            return {
+                "timestamp": at.isoformat(),
+                "pv": {"total_w": 1000.0, "solakon_one_w": 750.0, "ez1_east_w": 250.0},
+                "house": {"consumption_w": 800.0}, "grid": {"power_w": -200.0},
+                "battery": {"power_w": 0.0, "soc_percent": 50.0},
+                "autarky_percent": 100.0, "quality": "complete",
+            }
+
+        with tempfile.TemporaryDirectory() as directory:
+            storage = Storage(Path(directory) / "energy.sqlite3")
+            storage.insert(snapshot(recorded))
+            storage.insert(snapshot(recorded + timedelta(seconds=10)))
+            series = storage.energy_series("year", recorded.date().isoformat())
+            with storage.connect() as connection:
+                cached = connection.execute(
+                    "SELECT COUNT(*) FROM derived_cache WHERE cache_key LIKE 'daily-statistics-v3:%'"
+                ).fetchone()[0]
+
+        self.assertEqual(len(series["points"]), 1)
+        self.assertEqual(cached, 1)
+        self.assertAlmostEqual(series["points"][0]["pv_total_kwh"], 10 / 3600, places=4)
+
+    def test_storage_stats_uses_compaction_metadata(self) -> None:
+        old = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+        snapshot = {
+            "timestamp": old.isoformat(),
+            "pv": {"total_w": 0.0, "solakon_one_w": 0.0, "ez1_east_w": 0.0},
+            "house": {"consumption_w": 0.0}, "grid": {"power_w": 0.0},
+            "battery": {"power_w": 0.0, "soc_percent": 50.0},
+            "autarky_percent": 0.0, "quality": "complete",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            storage = Storage(Path(directory) / "energy.sqlite3")
+            storage.insert(snapshot)
+            storage.compact_redundant_json(90, now=datetime(2026, 5, 1, tzinfo=timezone.utc))
+            stats = storage.stats()
+
+        self.assertEqual(stats["measurements"], 1)
+        self.assertEqual(stats["compacted_snapshots"], 1)
 
     def test_highscores_separate_complete_daily_energy_from_instantaneous_power(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

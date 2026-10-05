@@ -18,6 +18,13 @@ blockierendes automatisches `VACUUM` ist bewusst nicht vorgesehen. Die Datei mus
 nach der ersten Kompaktierung daher nicht sofort kleiner werden, wächst danach aber
 wesentlich langsamer.
 
+## Abgeleitete Daten
+
+`derived_cache` enthält reproduzierbare Tages-, Historien- und Rekordaggregate.
+Abgeschlossene Zeiträume werden mit einem Fingerabdruck aus Zeilenzahl und höchster
+Mess-ID verknüpft. Laufende Zeiträume bleiben live; die Rohmessungen bleiben immer
+die maßgebliche Quelle.
+
 ## Vorzeichen
 
 - Netz positiv: Bezug

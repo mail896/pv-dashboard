@@ -174,21 +174,28 @@
   }
 
   const viewIncludes = (name) => dashboardView === "all" || dashboardView === name;
+  const activeLoads = new Map();
+  function loadOnce(name, loader) {
+    if (activeLoads.has(name)) return activeLoads.get(name);
+    const pending = Promise.resolve().then(loader).finally(() => activeLoads.delete(name));
+    activeLoads.set(name, pending);
+    return pending;
+  }
 
   function refreshDashboardView() {
-    if (viewIncludes("overview") || viewIncludes("economics")) void loadStatistics();
+    if (viewIncludes("overview") || viewIncludes("economics")) void loadOnce("statistics", loadStatistics);
     if (viewIncludes("history")) {
-      void loadHistory();
-      void loadTemperatureHistory();
-      void loadBatteryStatistics();
-      void loadSolarProfiles();
-      void loadEnergySeries();
-      void loadHighscores();
+      void loadOnce("history", loadHistory);
+      void loadOnce("temperature", loadTemperatureHistory);
+      void loadOnce("battery", loadBatteryStatistics);
+      void loadOnce("solar", loadSolarProfiles);
+      void loadOnce("energy", loadEnergySeries);
+      void loadOnce("highscores", loadHighscores);
     }
     if (viewIncludes("economics")) {
-      void loadEconomics();
+      void loadOnce("economics", loadEconomics);
     }
-    if (viewIncludes("system")) { void loadStorage(); void loadDeviceEvents(); }
+    if (viewIncludes("system")) { void loadOnce("storage", loadStorage); void loadOnce("events", loadDeviceEvents); }
   }
 
   function setDashboardView(view, persist = true) {
@@ -1618,14 +1625,14 @@
   void loadLive();
   setDashboardView(dashboardView, false);
   liveTimer = window.setInterval(loadLive, 5000);
-  historyTimer = window.setInterval(() => { if (viewIncludes("history")) void loadHistory(); }, 30000);
-  temperatureTimer = window.setInterval(() => { if (viewIncludes("history")) void loadTemperatureHistory(); }, 60000);
-  storageTimer = window.setInterval(() => { if (viewIncludes("system")) { void loadStorage(); void loadDeviceEvents(); } }, 30000);
-  statisticsTimer = window.setInterval(() => { if (viewIncludes("overview") || viewIncludes("economics")) void loadStatistics(); }, 60000);
-  economicsTimer = window.setInterval(() => { if (viewIncludes("economics")) void loadEconomics(); }, 60000);
-  batteryStatisticsTimer = window.setInterval(() => { if (viewIncludes("history")) void loadBatteryStatistics(); }, 60000);
-  solarProfileTimer = window.setInterval(() => { if (viewIncludes("history")) void loadSolarProfiles(); }, 300000);
-  energyTimer = window.setInterval(() => { if (viewIncludes("history")) void loadEnergySeries(); }, 300000);
-  highscoreTimer = window.setInterval(() => { if (viewIncludes("history")) void loadHighscores(); }, 300000);
+  historyTimer = window.setInterval(() => { if (viewIncludes("history")) void loadOnce("history", loadHistory); }, 30000);
+  temperatureTimer = window.setInterval(() => { if (viewIncludes("history")) void loadOnce("temperature", loadTemperatureHistory); }, 60000);
+  storageTimer = window.setInterval(() => { if (viewIncludes("system")) { void loadOnce("storage", loadStorage); void loadOnce("events", loadDeviceEvents); } }, 30000);
+  statisticsTimer = window.setInterval(() => { if (viewIncludes("overview") || viewIncludes("economics")) void loadOnce("statistics", loadStatistics); }, 60000);
+  economicsTimer = window.setInterval(() => { if (viewIncludes("economics")) void loadOnce("economics", loadEconomics); }, 60000);
+  batteryStatisticsTimer = window.setInterval(() => { if (viewIncludes("history")) void loadOnce("battery", loadBatteryStatistics); }, 60000);
+  solarProfileTimer = window.setInterval(() => { if (viewIncludes("history")) void loadOnce("solar", loadSolarProfiles); }, 300000);
+  energyTimer = window.setInterval(() => { if (viewIncludes("history")) void loadOnce("energy", loadEnergySeries); }, 300000);
+  highscoreTimer = window.setInterval(() => { if (viewIncludes("history")) void loadOnce("highscores", loadHighscores); }, 300000);
   window.addEventListener("beforeunload", () => { clearInterval(liveTimer); clearInterval(historyTimer); clearInterval(temperatureTimer); clearInterval(storageTimer); clearInterval(statisticsTimer); clearInterval(economicsTimer); clearInterval(batteryStatisticsTimer); clearInterval(solarProfileTimer); clearInterval(energyTimer); clearInterval(highscoreTimer); });
 })();

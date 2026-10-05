@@ -54,6 +54,10 @@ class Storage:
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_measurements_timestamp ON measurements(timestamp)"
             )
+            for column in ("pv_total_w", "house_w", "grid_w", "battery_w"):
+                connection.execute(
+                    f"CREATE INDEX IF NOT EXISTS idx_measurements_{column} ON measurements({column})"
+                )
             measurement_columns = {
                 row["name"] for row in connection.execute("PRAGMA table_info(measurements)").fetchall()
             }
@@ -184,6 +188,18 @@ class Storage:
             connection.execute(
                 "UPDATE measurements SET snapshot_json = '{}' WHERE timestamp < ? AND snapshot_json <> '{}'",
                 (cutoff_text,),
+            )
+            previous_compacted = connection.execute(
+                "SELECT value_json FROM storage_metadata WHERE key = 'compacted_snapshot_rows'"
+            ).fetchone()
+            compacted_total = int(json.loads(previous_compacted["value_json"])) if previous_compacted else 0
+            compacted_total += int(before["rows"] or 0)
+            connection.execute(
+                """
+                INSERT INTO storage_metadata(key, value_json, updated_at) VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+                """,
+                ("compacted_snapshot_rows", json.dumps(compacted_total), reference.isoformat()),
             )
         return {
             "retention_days": days, "cutoff": cutoff_text,
@@ -387,13 +403,20 @@ class Storage:
         }
 
     def stats(self) -> dict[str, Any]:
+        runtime = self._runtime_cache.get("storage-stats-v2")
+        if runtime and time.monotonic() - runtime[0] < 300:
+            return runtime[1]
         with self.connect() as connection:
-            row = connection.execute(
-                "SELECT COUNT(*) AS count, MIN(timestamp) AS first, MAX(timestamp) AS latest FROM measurements"
+            latest = connection.execute(
+                "SELECT id, timestamp FROM measurements ORDER BY id DESC LIMIT 1"
             ).fetchone()
-            compacted = connection.execute(
-                "SELECT COUNT(*) AS count FROM measurements WHERE snapshot_json = '{}'"
-            ).fetchone()["count"]
+            first = connection.execute(
+                "SELECT timestamp FROM measurements ORDER BY id ASC LIMIT 1"
+            ).fetchone()
+            compacted_row = connection.execute(
+                "SELECT value_json FROM storage_metadata WHERE key = 'compacted_snapshot_rows'"
+            ).fetchone()
+            compacted = int(json.loads(compacted_row["value_json"])) if compacted_row else 0
         related_files = (
             self.path,
             self.path.with_name(f"{self.path.name}-wal"),
@@ -401,19 +424,22 @@ class Storage:
         )
         database_bytes = sum(path.stat().st_size for path in related_files if path.exists())
         disk = shutil.disk_usage(self.path.parent)
-        return {
-            "measurements": row["count"],
-            "first_timestamp": row["first"],
-            "latest_timestamp": row["latest"],
+        payload = {
+            "measurements": int(latest["id"]) if latest else 0,
+            "first_timestamp": first["timestamp"] if first else None,
+            "latest_timestamp": latest["timestamp"] if latest else None,
             "database_bytes": database_bytes,
             "disk_free_bytes": disk.free,
             "compacted_snapshots": int(compacted or 0),
             "json_retention_days": 90,
         }
+        self._runtime_cache["storage-stats-v2"] = (time.monotonic(), payload)
+        return payload
 
     def history(self, range_name: str) -> dict[str, Any]:
         duration, bucket_seconds = RANGES.get(range_name, RANGES["24h"])
-        start = datetime.now(timezone.utc) - duration
+        now = datetime.now(timezone.utc)
+        start = now - duration
         columns = (
             "pv_total_w",
             "pv_solakon_w",
@@ -426,25 +452,41 @@ class Storage:
             "internal_temperature_c",
         )
         averages = ", ".join(f"AVG({column}) AS {column}" for column in columns)
-        query = f"""
-            SELECT
-                CAST(strftime('%s', timestamp) / ? AS INTEGER) * ? AS bucket,
-                {averages}
-            FROM measurements
-            WHERE timestamp >= ?
-            GROUP BY bucket
-            ORDER BY bucket ASC
-        """
-        with self.connect() as connection:
-            rows = connection.execute(
-                query,
-                (bucket_seconds, bucket_seconds, start.isoformat(timespec="seconds")),
-            ).fetchall()
-        points = []
-        for row in rows:
-            point = {column: row[column] for column in columns}
-            point["timestamp"] = datetime.fromtimestamp(row["bucket"], tz=timezone.utc).isoformat()
-            points.append(point)
+        points: list[dict[str, Any]] = []
+        segment_day = start.date()
+        while segment_day <= now.date():
+            segment_start = datetime.combine(segment_day, datetime.min.time(), tzinfo=timezone.utc)
+            segment_end = segment_start + timedelta(days=1)
+            closed = segment_end <= now
+            cache_key = f"history-day-v1:{segment_day}:{bucket_seconds}"
+            segment_points = None
+            if closed:
+                fingerprint = self._measurement_fingerprint(segment_start, segment_end)
+                segment_points = self._cache_get(cache_key, fingerprint)
+            if segment_points is None:
+                query = f"""
+                    SELECT
+                        CAST(strftime('%s', timestamp) / ? AS INTEGER) * ? AS bucket,
+                        {averages}
+                    FROM measurements
+                    WHERE timestamp >= ? AND timestamp < ?
+                    GROUP BY bucket
+                    ORDER BY bucket ASC
+                """
+                with self.connect() as connection:
+                    rows = connection.execute(
+                        query,
+                        (bucket_seconds, bucket_seconds, segment_start.isoformat(), segment_end.isoformat()),
+                    ).fetchall()
+                segment_points = []
+                for row in rows:
+                    point = {column: row[column] for column in columns}
+                    point["timestamp"] = datetime.fromtimestamp(row["bucket"], tz=timezone.utc).isoformat()
+                    segment_points.append(point)
+                if closed:
+                    self._cache_set(cache_key, fingerprint, segment_points)
+            points.extend(point for point in segment_points if datetime.fromisoformat(point["timestamp"]) >= start)
+            segment_day += timedelta(days=1)
         return {
             "range": range_name if range_name in RANGES else "24h",
             "bucket_seconds": bucket_seconds,
@@ -476,7 +518,7 @@ class Storage:
                 day_end = datetime.combine(requested_day + timedelta(days=1), datetime.min.time(), tzinfo=local_zone).astimezone(timezone.utc)
                 fingerprint = self._measurement_fingerprint(day_start, day_end)
                 cache_fingerprints[day_key] = fingerprint
-                cached = self._cache_get(f"daily-statistics-v1:{day_key}", fingerprint)
+                cached = self._cache_get(f"daily-statistics-v3:{day_key}", fingerprint)
                 if cached is not None:
                     cached_days[day_key] = cached
                     continue
@@ -488,68 +530,74 @@ class Storage:
             bounds = bounds_runtime[1]
         else:
             with self.connect() as connection:
-                bounds_row = connection.execute(
-                    """
-                    SELECT MIN(timestamp) AS first,
-                           MAX(timestamp) AS latest,
-                           COUNT(DISTINCT substr(timestamp, 1, 10)) AS recorded_days
-                    FROM measurements
-                    """
+                first_row = connection.execute(
+                    "SELECT timestamp FROM measurements ORDER BY timestamp ASC LIMIT 1"
                 ).fetchone()
-            bounds = dict(bounds_row) if bounds_row else {"first": None, "latest": None, "recorded_days": 0}
+                latest_row = connection.execute(
+                    "SELECT timestamp FROM measurements ORDER BY timestamp DESC LIMIT 1"
+                ).fetchone()
+            bounds = {
+                "first": first_row["timestamp"] if first_row else None,
+                "latest": latest_row["timestamp"] if latest_row else None,
+            }
+            if bounds.get("first") and bounds.get("latest"):
+                first_local = datetime.fromisoformat(bounds["first"]).astimezone(local_zone).date()
+                latest_local = datetime.fromisoformat(bounds["latest"]).astimezone(local_zone).date()
+                bounds["recorded_days"] = (latest_local - first_local).days + 1
+            else:
+                bounds["recorded_days"] = 0
             self._runtime_cache["daily-statistics-bounds-v1"] = (time.monotonic(), bounds)
-
-        rows: list[sqlite3.Row] = []
-        with self.connect() as connection:
-            for missing_day in missing_days:
-                day_start = datetime.combine(missing_day, datetime.min.time(), tzinfo=local_zone).astimezone(timezone.utc)
-                day_end = datetime.combine(missing_day + timedelta(days=1), datetime.min.time(), tzinfo=local_zone).astimezone(timezone.utc)
-                rows.extend(connection.execute(
-                    """
-                    SELECT timestamp, pv_total_w, house_w, grid_w, battery_w
-                    FROM measurements
-                    WHERE timestamp >= ? AND timestamp < ?
-                    ORDER BY timestamp ASC
-                    """,
-                    (day_start.isoformat(timespec="seconds"), day_end.isoformat(timespec="seconds")),
-                ).fetchall())
 
         totals: dict[str, dict[str, float]] = {}
         covered_seconds: dict[str, float] = {}
         house_samples: dict[str, list[float]] = {}
-        previous: sqlite3.Row | None = None
-        previous_time: datetime | None = None
-        for row in rows:
-            current_time = datetime.fromisoformat(row["timestamp"])
-            if previous is not None and previous_time is not None:
-                elapsed = (current_time - previous_time).total_seconds()
-                day = previous_time.astimezone(local_zone).date().isoformat()
-                if 0 < elapsed <= 30 and current_time.astimezone(local_zone).date().isoformat() == day:
-                    values = totals.setdefault(day, {
-                        "consumption_kwh": 0.0,
-                        "pv_kwh": 0.0,
-                        "import_kwh": 0.0,
-                        "export_kwh": 0.0,
-                        "battery_charge_kwh": 0.0,
-                        "battery_discharge_kwh": 0.0,
-                    })
-                    for key, column, transform in (
-                        ("consumption_kwh", "house_w", lambda value: max(value, 0.0)),
-                        ("pv_kwh", "pv_total_w", lambda value: max(value, 0.0)),
-                        ("import_kwh", "grid_w", lambda value: max(value, 0.0)),
-                        ("export_kwh", "grid_w", lambda value: max(-value, 0.0)),
-                        ("battery_charge_kwh", "battery_w", lambda value: max(-value, 0.0)),
-                        ("battery_discharge_kwh", "battery_w", lambda value: max(value, 0.0)),
-                    ):
-                        a = transform(float(previous[column] or 0.0))
-                        b = transform(float(row[column] or 0.0))
-                        values[key] += ((a + b) / 2.0) * elapsed / 3_600_000.0
-                    covered_seconds[day] = covered_seconds.get(day, 0.0) + elapsed
-                    house_value = float(previous["house_w"] or 0.0)
-                    if 20.0 <= house_value <= 2000.0:
-                        house_samples.setdefault(day, []).append(house_value)
-            previous = row
-            previous_time = current_time
+        with self.connect() as connection:
+            for missing_day in missing_days:
+                day_start = datetime.combine(missing_day, datetime.min.time(), tzinfo=local_zone).astimezone(timezone.utc)
+                day_end = datetime.combine(missing_day + timedelta(days=1), datetime.min.time(), tzinfo=local_zone).astimezone(timezone.utc)
+                previous: sqlite3.Row | None = None
+                previous_time: datetime | None = None
+                rows = connection.execute(
+                    """
+                    SELECT timestamp, pv_total_w, pv_solakon_w, pv_ez1_w,
+                           house_w, grid_w, battery_w
+                    FROM measurements
+                    WHERE timestamp >= ? AND timestamp < ?
+                    ORDER BY timestamp ASC
+                    """,
+                    (day_start.isoformat(timespec="seconds"), (day_end + timedelta(seconds=30)).isoformat(timespec="seconds")),
+                )
+                for row in rows:
+                    current_time = datetime.fromisoformat(row["timestamp"])
+                    if previous is not None and previous_time is not None:
+                        elapsed = (current_time - previous_time).total_seconds()
+                        day = previous_time.astimezone(local_zone).date().isoformat()
+                        if 0 < elapsed <= 30 and day == missing_day.isoformat():
+                            values = totals.setdefault(day, {
+                                "consumption_kwh": 0.0, "pv_kwh": 0.0,
+                                "pv_solakon_kwh": 0.0, "pv_ez1_kwh": 0.0,
+                                "import_kwh": 0.0, "export_kwh": 0.0,
+                                "battery_charge_kwh": 0.0, "battery_discharge_kwh": 0.0,
+                            })
+                            for key, column, transform in (
+                                ("consumption_kwh", "house_w", lambda value: max(value, 0.0)),
+                                ("pv_kwh", "pv_total_w", lambda value: max(value, 0.0)),
+                                ("pv_solakon_kwh", "pv_solakon_w", lambda value: max(value, 0.0)),
+                                ("pv_ez1_kwh", "pv_ez1_w", lambda value: max(value, 0.0)),
+                                ("import_kwh", "grid_w", lambda value: max(value, 0.0)),
+                                ("export_kwh", "grid_w", lambda value: max(-value, 0.0)),
+                                ("battery_charge_kwh", "battery_w", lambda value: max(-value, 0.0)),
+                                ("battery_discharge_kwh", "battery_w", lambda value: max(value, 0.0)),
+                            ):
+                                a = transform(float(previous[column] or 0.0))
+                                b = transform(float(row[column] or 0.0))
+                                values[key] += ((a + b) / 2.0) * elapsed / 3_600_000.0
+                            covered_seconds[day] = covered_seconds.get(day, 0.0) + elapsed
+                            house_value = float(previous["house_w"] or 0.0)
+                            if 20.0 <= house_value <= 2000.0:
+                                house_samples.setdefault(day, []).append(house_value)
+                    previous = row
+                    previous_time = current_time
 
         result = []
         for offset in range(max(1, days)):
@@ -559,6 +607,7 @@ class Storage:
                 continue
             values = totals.get(day, {
                 "consumption_kwh": 0.0, "pv_kwh": 0.0, "import_kwh": 0.0,
+                "pv_solakon_kwh": 0.0, "pv_ez1_kwh": 0.0,
                 "export_kwh": 0.0, "battery_charge_kwh": 0.0,
                 "battery_discharge_kwh": 0.0,
             })
@@ -578,12 +627,13 @@ class Storage:
                 values["base_load_w"] = 0.0
             daily_result = {
                 "date": day,
-                **{key: round(value, 3) for key, value in values.items()},
+                **{key: round(value, 6) for key, value in values.items()},
                 "coverage_hours": round(covered_seconds.get(day, 0.0) / 3600.0, 2),
+                "covered_seconds": round(covered_seconds.get(day, 0.0), 1),
             }
             result.append(daily_result)
             if day in cache_fingerprints:
-                self._cache_set(f"daily-statistics-v1:{day}", cache_fingerprints[day], daily_result)
+                self._cache_set(f"daily-statistics-v3:{day}", cache_fingerprints[day], daily_result)
         first_recorded = None
         if bounds and bounds["first"]:
             first_recorded = datetime.fromisoformat(bounds["first"]).astimezone(local_zone).date()
@@ -632,6 +682,55 @@ class Storage:
             first = datetime.fromisoformat(bounds["first"]).astimezone(zone).date() if bounds["first"] else selected
             latest = datetime.fromisoformat(bounds["latest"]).astimezone(zone).date() if bounds["latest"] else selected
             start_date, end_date = date(first.year, 1, 1), date(latest.year + 1, 1, 1)
+
+        if period != "day":
+            last_day = min(end_date - timedelta(days=1), today)
+            with self.connect() as connection:
+                first_row = connection.execute(
+                    "SELECT timestamp FROM measurements ORDER BY timestamp ASC LIMIT 1"
+                ).fetchone()
+            recorded_start = datetime.fromisoformat(first_row["timestamp"]).astimezone(zone).date() if first_row else last_day
+            aggregate_start = max(start_date, recorded_start)
+            daily = [] if aggregate_start > last_day else self.daily_statistics(
+                (last_day - aggregate_start).days + 1, last_day.isoformat()
+            )["days"]
+
+            def aggregate_key(item: dict[str, Any]) -> str:
+                item_date = date.fromisoformat(item["date"])
+                if period in {"week", "month"}:
+                    return item["date"]
+                if period == "year":
+                    return item_date.strftime("%Y-%m")
+                return str(item_date.year)
+
+            metrics = (
+                ("pv_total_kwh", "pv_kwh"),
+                ("pv_solakon_kwh", "pv_solakon_kwh"),
+                ("pv_ez1_kwh", "pv_ez1_kwh"),
+                ("consumption_kwh", "consumption_kwh"),
+                ("import_kwh", "import_kwh"),
+                ("export_kwh", "export_kwh"),
+                ("battery_charge_kwh", "battery_charge_kwh"),
+                ("battery_discharge_kwh", "battery_discharge_kwh"),
+            )
+            grouped: dict[str, dict[str, float]] = {}
+            for item in daily:
+                key = aggregate_key(item)
+                values = grouped.setdefault(key, {name: 0.0 for name, _ in metrics})
+                for output, source in metrics:
+                    values[output] += float(item.get(source, 0.0))
+                values["covered_seconds"] = values.get("covered_seconds", 0.0) + float(item.get("covered_seconds", 0.0))
+            points = []
+            for key in sorted(grouped):
+                values = grouped[key]
+                consumption, pv = values["consumption_kwh"], values["pv_total_kwh"]
+                values["autarky_percent"] = 100.0 if consumption <= 0 else max(0.0, min(100.0, (1 - values["import_kwh"] / consumption) * 100))
+                values["self_consumption_percent"] = 0.0 if pv <= 0 else max(0.0, min(100.0, (1 - values["export_kwh"] / pv) * 100))
+                points.append({"bucket": key, **{name: round(value, 4) for name, value in values.items()}})
+            return {
+                "period": period, "anchor": selected.isoformat(), "start": start_date.isoformat(),
+                "end": end_date.isoformat(), "timezone": "Europe/Berlin", "points": points,
+            }
 
         start_local = datetime.combine(start_date, datetime.min.time(), tzinfo=zone)
         end_local = datetime.combine(end_date, datetime.min.time(), tzinfo=zone)
@@ -698,50 +797,92 @@ class Storage:
 
     def highscores(self) -> dict[str, Any]:
         """Separate energy records (complete days) from instantaneous peaks."""
+        cache_key = "highscores-v2"
+        runtime = self._runtime_cache.get(cache_key)
+        if runtime and time.monotonic() - runtime[0] < 300:
+            return runtime[1]
         with self.connect() as connection:
-            first = connection.execute("SELECT MIN(timestamp) value FROM measurements").fetchone()["value"]
-            rows = connection.execute(
-                """
-                SELECT
-                  MAX(pv_total_w) max_pv, MAX(house_w) max_house,
-                  MAX(grid_w) max_import, MIN(grid_w) max_export,
-                  MAX(battery_w) max_discharge, MIN(battery_w) max_charge
-                FROM measurements
-                """
-            ).fetchone()
-            times = {}
-            for name, column, direction in (
-                ("pv", "pv_total_w", "DESC"), ("house", "house_w", "DESC"),
-                ("import", "grid_w", "DESC"), ("export", "grid_w", "ASC"),
-                ("battery_discharge", "battery_w", "DESC"), ("battery_charge", "battery_w", "ASC"),
-            ):
-                hit = connection.execute(f"SELECT timestamp, {column} value FROM measurements WHERE {column} IS NOT NULL ORDER BY {column} {direction} LIMIT 1").fetchone()
-                times[name] = {"timestamp": hit["timestamp"], "value_w": abs(round(hit["value"], 1))} if hit else None
-
-        daily = self.daily_statistics(3660)["days"]
-        complete = [item for item in daily if item["coverage_hours"] >= 22.8]
-        daily_records = []
+            first_row = connection.execute("SELECT timestamp FROM measurements ORDER BY id ASC LIMIT 1").fetchone()
+            newest = connection.execute("SELECT COALESCE(MAX(id), 0) value FROM measurements").fetchone()["value"]
+        first = first_row["timestamp"] if first_row else None
+        stored = self._cache_get("highscore-instant-v1", "incremental")
+        times = dict(stored.get("times", {})) if stored else {}
+        last_id = int(stored.get("last_id", 0)) if stored else 0
         definitions = (
-            ("PV-Erzeugung", "pv_kwh"), ("Hausverbrauch", "consumption_kwh"),
-            ("Netzbezug", "import_kwh"), ("Einspeisung", "export_kwh"),
-            ("Batterieladung", "battery_charge_kwh"), ("Batterieentladung", "battery_discharge_kwh"),
+            ("pv", "pv_total_w", True), ("house", "house_w", True),
+            ("import", "grid_w", True), ("export", "grid_w", False),
+            ("battery_discharge", "battery_w", True), ("battery_charge", "battery_w", False),
         )
-        for label, key in definitions:
-            if complete:
-                maximum = max(complete, key=lambda item: item[key])
-                minimum = min(complete, key=lambda item: item[key])
-                daily_records.append({"label": label, "maximum": {"date": maximum["date"], "value_kwh": maximum[key]}, "minimum": {"date": minimum["date"], "value_kwh": minimum[key]}})
-        return {
-            "since": first, "complete_days": len(complete), "daily": daily_records,
+        if stored is None:
+            with self.connect() as connection:
+                for name, column, maximum in definitions:
+                    aggregate = "MAX" if maximum else "MIN"
+                    hit = connection.execute(
+                        f"SELECT timestamp, {aggregate}({column}) value FROM measurements WHERE {column} IS NOT NULL"
+                    ).fetchone()
+                    if hit and hit["value"] is not None:
+                        times[name] = {"timestamp": hit["timestamp"], "signed_value_w": round(float(hit["value"]), 1)}
+        elif newest > last_id:
+            with self.connect() as connection:
+                rows = connection.execute(
+                    "SELECT timestamp, pv_total_w, house_w, grid_w, battery_w FROM measurements WHERE id > ? ORDER BY id",
+                    (last_id,),
+                ).fetchall()
+            for row in rows:
+                for name, column, maximum in definitions:
+                    if row[column] is None:
+                        continue
+                    candidate = float(row[column])
+                    current = times.get(name)
+                    if current is None or (maximum and candidate > current["signed_value_w"]) or (not maximum and candidate < current["signed_value_w"]):
+                        times[name] = {"timestamp": row["timestamp"], "signed_value_w": round(candidate, 1)}
+        if newest != last_id:
+            self._cache_set("highscore-instant-v1", "incremental", {"last_id": int(newest), "times": times})
+        display_times = {
+            name: {"timestamp": value["timestamp"], "value_w": abs(value["signed_value_w"])}
+            for name, value in times.items()
+        }
+
+        complete_days = 0
+        daily_records = []
+        if first:
+            local_zone = ZoneInfo("Europe/Berlin")
+            today = datetime.now(local_zone).date()
+            last_closed_day = today - timedelta(days=1)
+            first_day = datetime.fromisoformat(first).astimezone(local_zone).date()
+            closed_start = datetime.combine(first_day, datetime.min.time(), tzinfo=local_zone).astimezone(timezone.utc)
+            closed_end = datetime.combine(today, datetime.min.time(), tzinfo=local_zone).astimezone(timezone.utc)
+            daily_fingerprint = self._measurement_fingerprint(closed_start, closed_end)
+            daily_payload = self._cache_get(f"highscore-days-v2:{last_closed_day}", daily_fingerprint)
+            if daily_payload is None:
+                daily = self.daily_statistics(max(1, (last_closed_day - first_day).days + 1), last_closed_day.isoformat())["days"]
+                complete = [item for item in daily if item["coverage_hours"] >= 22.8]
+                for label, key in (
+                    ("PV-Erzeugung", "pv_kwh"), ("Hausverbrauch", "consumption_kwh"),
+                    ("Netzbezug", "import_kwh"), ("Einspeisung", "export_kwh"),
+                    ("Batterieladung", "battery_charge_kwh"), ("Batterieentladung", "battery_discharge_kwh"),
+                ):
+                    if complete:
+                        maximum = max(complete, key=lambda item: item[key])
+                        minimum = min(complete, key=lambda item: item[key])
+                        daily_records.append({"label": label, "maximum": {"date": maximum["date"], "value_kwh": maximum[key]}, "minimum": {"date": minimum["date"], "value_kwh": minimum[key]}})
+                daily_payload = {"complete_days": len(complete), "daily": daily_records}
+                self._cache_set(f"highscore-days-v2:{last_closed_day}", daily_fingerprint, daily_payload)
+            complete_days = int(daily_payload["complete_days"])
+            daily_records = daily_payload["daily"]
+        payload = {
+            "since": first, "complete_days": complete_days, "daily": daily_records,
             "instantaneous": [
-                {"label": "PV-Leistung", **times["pv"]} if times["pv"] else None,
-                {"label": "Hauslast", **times["house"]} if times["house"] else None,
-                {"label": "Netzbezug", **times["import"]} if times["import"] else None,
-                {"label": "Einspeisung", **times["export"]} if times["export"] else None,
-                {"label": "Batterieabgabe", **times["battery_discharge"]} if times["battery_discharge"] else None,
-                {"label": "Batterieladung", **times["battery_charge"]} if times["battery_charge"] else None,
+                {"label": label, **display_times[name]} if name in display_times else None
+                for label, name in (
+                    ("PV-Leistung", "pv"), ("Hauslast", "house"), ("Netzbezug", "import"),
+                    ("Einspeisung", "export"), ("Batterieabgabe", "battery_discharge"),
+                    ("Batterieladung", "battery_charge"),
+                )
             ],
         }
+        self._runtime_cache[cache_key] = (time.monotonic(), payload)
+        return payload
 
     def economics_totals(self) -> dict[str, Any]:
         """Integrate the measured energy balance over the complete recording.
@@ -751,48 +892,35 @@ class Storage:
         alter or become part of the measured source data.
         """
         with self.connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT timestamp, house_w, grid_w, snapshot_json
-                FROM measurements
-                ORDER BY timestamp ASC
-                """
-            ).fetchall()
-
-        totals = {
-            "consumption_kwh": 0.0,
-            "import_kwh": 0.0,
-            "export_kwh": 0.0,
-        }
-        covered_seconds = 0.0
-        previous: sqlite3.Row | None = None
-        previous_time: datetime | None = None
-        for row in rows:
-            current_time = datetime.fromisoformat(row["timestamp"])
-            if previous is not None and previous_time is not None:
-                elapsed = (current_time - previous_time).total_seconds()
-                if 0 < elapsed <= 30:
-                    for key, column, transform in (
-                        ("consumption_kwh", "house_w", lambda value: max(value, 0.0)),
-                        ("import_kwh", "grid_w", lambda value: max(value, 0.0)),
-                        ("export_kwh", "grid_w", lambda value: max(-value, 0.0)),
-                    ):
-                        a = transform(float(previous[column] or 0.0))
-                        b = transform(float(row[column] or 0.0))
-                        totals[key] += ((a + b) / 2.0) * elapsed / 3_600_000.0
-                    covered_seconds += elapsed
-            previous = row
-            previous_time = current_time
-
-        avoided_import = max(totals["consumption_kwh"] - totals["import_kwh"], 0.0)
-        with self.connect() as connection:
+            bounds = connection.execute(
+                "SELECT timestamp FROM measurements ORDER BY id ASC LIMIT 1"
+            ).fetchone()
             meter_at_start = self._preserve_recording_origin(connection)
+        if not bounds:
+            return {
+                "consumption_kwh": 0.0, "import_kwh": 0.0, "export_kwh": 0.0,
+                "avoided_import_kwh": 0.0, "coverage_hours": 0.0,
+                "first_timestamp": None, "latest_timestamp": None,
+                "meter_at_recording_start": meter_at_start,
+            }
+        zone = ZoneInfo("Europe/Berlin")
+        first_time = datetime.fromisoformat(bounds["timestamp"])
+        today = datetime.now(zone).date()
+        first_day = first_time.astimezone(zone).date()
+        daily = self.daily_statistics((today - first_day).days + 1, today.isoformat())["days"]
+        totals = {
+            key: sum(float(item.get(key, 0.0)) for item in daily)
+            for key in ("consumption_kwh", "import_kwh", "export_kwh")
+        }
+        covered_seconds = sum(float(item.get("covered_seconds", 0.0)) for item in daily)
+        avoided_import = max(totals["consumption_kwh"] - totals["import_kwh"], 0.0)
+        latest_timestamp = self.stats()["latest_timestamp"]
         return {
             **{key: round(value, 3) for key, value in totals.items()},
             "avoided_import_kwh": round(avoided_import, 3),
             "coverage_hours": round(covered_seconds / 3600.0, 2),
-            "first_timestamp": rows[0]["timestamp"] if rows else None,
-            "latest_timestamp": rows[-1]["timestamp"] if rows else None,
+            "first_timestamp": bounds["timestamp"],
+            "latest_timestamp": latest_timestamp,
             "meter_at_recording_start": meter_at_start,
         }
 

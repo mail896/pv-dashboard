@@ -32,6 +32,13 @@ Abgeschlossene Tagesstatistiken werden ebenfalls im automatisch invalidierten
 5-Sekunden-Werten berechnet. So bleibt die Übersicht bei wachsender Historie schnell,
 ohne Tageswerte einzufrieren oder Messdaten zu verändern.
 
+Darauf bauen auch Wirtschafts-, Wochen-, Monats-, Jahres- und Mehrjahreswerte auf.
+Historiensegmente abgeschlossener UTC-Tage werden je Diagrammauflösung persistent
+voraggregiert. Momentanrekorde werden inkrementell fortgeschrieben, und der
+Speicherstatus nutzt indexgestützte Randabfragen mit einem kurzen Laufzeitcache.
+Im Browser verhindert ein Single-Flight-Schutz, dass Aktualisierungstimer mehrere
+gleichartige Berechnungen gleichzeitig starten.
+
 ## Energiebilanz
 
 Die Hauslast wird AC-seitig berechnet:
